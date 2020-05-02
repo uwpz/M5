@@ -10,6 +10,7 @@ from initialize import *
 # Specific libraries
 from scipy.stats.mstats import winsorize
 
+
 # Main parameter
 horizon = 1
 
