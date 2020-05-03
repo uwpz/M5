@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 
 # Plot
+import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib import colors as mcolors
