@@ -104,7 +104,8 @@ metr = setdiff(metr, remove)
 
 # Remove highly/perfectly (>=98%) correlated (the ones with less NA!)
 df[metr].describe()
-plot_corr(df.sample(n = int(1e5)), metr, cutoff = 0, pdf = plotloc + "corr_metr.pdf")
+plot_corr(df.sample(n = int(1e5)), metr, cutoff = 0.9,
+          w=12, h = 12, pdf = plotloc + "corr_metr.pdf")
 remove = ["xxx", "xxx"]
 metr = setdiff(metr, remove)
 
@@ -206,8 +207,8 @@ print(varimp_cate_fold)
 # Prepare final data
 ########################################################################################################################
 
-# --- Adapt target ----------------------------------------------------------------------------------------
-
+# --- Prepare ----------------------------------------------------------------------------------------
+df = df.query("encode_flag == 0")
 target_labels = "target"
 
 

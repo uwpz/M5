@@ -401,7 +401,7 @@ def plot_distr(df, features,
                                                        widths = df_plot.w.values,
                                                        showmeans = True,
                                                        meanprops = dict(marker = "x",
-                                                                        markeredgecolor = "black"),
+                                                                        markeredgecolor = "red"),
                                                        flierprops = dict(marker = "."),
                                                        return_type = 'dict',
                                                        ax = ax_act)
@@ -498,6 +498,7 @@ def plot_corr(df, features, cate_corr_type = "contingency", cutoff = 0, n_cluste
         df_corr.rename(columns = d_new_names, index = d_new_names, inplace = True)
 
     # Filter out rows or cols below cutoff
+    np.fill_diagonal(df_corr.values, 0)
     i_bool = (df_corr.max(axis = 1) > cutoff).values
     df_corr = df_corr.loc[i_bool, i_bool]
     np.fill_diagonal(df_corr.values, 1)
@@ -510,7 +511,7 @@ def plot_corr(df, features, cate_corr_type = "contingency", cutoff = 0, n_cluste
     # Plot
     fig, ax = plt.subplots(1, 1)
     ax_act = ax
-    sns.heatmap(df_corr, annot = True, fmt = ".2f", cmap = "Blues", ax = ax_act)
+    sns.heatmap(df_corr, annot = True, xticklabels=True, yticklabels=True, fmt = ".2f", cmap = "Blues", ax = ax_act)
     ax_act.set_yticklabels(labels = ax_act.get_yticklabels(), rotation = 0)
     ax_act.set_xticklabels(labels = ax_act.get_xticklabels(), rotation = 90)
     if len(metr):
