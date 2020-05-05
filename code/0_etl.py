@@ -225,6 +225,7 @@ demand_lag_sameweekday = (df[ids + ["demand","snap"]]
                           .set_index(ids, append = True))
 
 # Rolling average
+tmp = datetime.now()
 def demand_avg_calc(weekrange = 1, suffix = "1week"):
     return (df[ids + ["demand"]]
             .shift(horizon, "D")
@@ -241,6 +242,23 @@ demand_avg = (df[ids + ["demand", "snap"]]
               .join(demand_avg_calc(weekrange = 12), how = "left")
               .join(demand_avg_calc(weekrange = 48), how = "left")
               )
+print(datetime.now() - tmp)
+
+# tmp = datetime.now()
+# def demand_avg_calc(df, weekrange = 1):
+#     return (df.reset_index(ids).shift(horizon, "D")
+#             .set_index(ids, append = True).unstack(ids)
+#             .rolling(str(weekrange * 7) + "D", closed = "right").mean().stack(ids))
+# demand_avg = (df[ids + ["demand"]]
+#               .set_index(ids, append = True)
+#               .assign(demand_avg1week = lambda x: demand_avg_calc(x, weekrange = 1))
+#               .assign(demand_avg1week = lambda x: demand_avg_calc(x, weekrange = 2))
+#               .assign(demand_avg1week = lambda x: demand_avg_calc(x, weekrange = 4))
+#               .assign(demand_avg1week = lambda x: demand_avg_calc(x, weekrange = 12))
+#               .assign(demand_avg1week = lambda x: demand_avg_calc(x, weekrange = 48))
+#               )
+# print(datetime.now() - tmp)
+
 
 # Rolling average with same weekday
 def demand_avg_sameweekday_calc(weekrange = 4):
