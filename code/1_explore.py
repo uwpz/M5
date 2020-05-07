@@ -11,7 +11,7 @@ from initialize import *
 from scipy.stats.mstats import winsorize
 
 # Main parameter
-horizon = 8
+horizon = 9
 
 # Specific parameters
 cutoff_corr = 0.4
