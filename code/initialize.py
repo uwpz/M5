@@ -53,7 +53,7 @@ import time
 # Silent plotting (Overwrite to get default: plt.ion();  matplotlib.use('TkAgg'))
 plt.ioff()
 matplotlib.use('Agg')
-# plt.ion(); matplotlib.use('TkAgg')
+#plt.ion(); matplotlib.use('TkAgg')
 
 
 # ######################################################################################################################
@@ -95,6 +95,10 @@ def spear(y_true, y_pred):
     return pd.DataFrame({"y_true": y_true, "y_pred": y_pred}).corr(method = "spearman").values[0, 1]
 
 
+def pear(y_true, y_pred):
+    return pd.DataFrame({"y_true": y_true, "y_pred": y_pred}).corr(method = "pearson").values[0, 1]
+
+
 def rmse(y_true, y_pred):
     return np.sqrt(np.mean(np.power(y_true - y_pred, 2)))
 
@@ -118,6 +122,7 @@ d_scoring = {"CLASS": {"auc": make_scorer(auc, greater_is_better = True, needs_p
              "MULTICLASS": {"auc": make_scorer(auc, greater_is_better = True, needs_proba = True),
                             "acc": make_scorer(acc, greater_is_better = True)},
              "REGR": {"spear": make_scorer(spear, greater_is_better = True),
+                      "pear": make_scorer(pear, greater_is_better = True),
                       "rmse": make_scorer(rmse, greater_is_better = False)}}
 
 
@@ -853,6 +858,8 @@ def plot_all_performances(y, yhat, target_labels = None, target_type = "CLASS", 
     elif target_type == "REGR":
         fig, ax = plt.subplots(2, 3)
 
+        #pdb.set_trace()
+
         # Scatter plots
         plot_scatter(yhat, y, regplot = regplot,
                      xlabel = r"$\^y$", ylabel = "y",
@@ -865,9 +872,9 @@ def plot_all_performances(y, yhat, target_labels = None, target_type = "CLASS", 
         plot_scatter(yhat, abs(y - yhat), regplot = regplot,
                      xlabel = r"$\^y$", ylabel = r"|y-$\^y$|", title = "Absolute Residuals vs. Fitted",
                      ylim = ylim, ax_act = ax[1, 1])
-        plot_scatter(yhat, abs(y - yhat) / abs(y), regplot = regplot,
-                     xlabel = r"$\^y$", ylabel = r"|y-$\^y$|/|y|", title = "Relative Residuals vs. Fitted",
-                     ylim = ylim, ax_act = ax[1, 2])
+        # plot_scatter(yhat, abs(y - yhat) / abs(y), regplot = regplot,
+        #              xlabel = r"$\^y$", ylabel = r"|y-$\^y$|/|y|", title = "Relative Residuals vs. Fitted",
+        #              ylim = ylim, ax_act = ax[1, 2])
 
         # Calibration
         ax_act = ax[0, 1]
@@ -1022,13 +1029,13 @@ def calc_varimp_by_permutation(df, fit, tr_spm = None,
                                features = None,
                                random_seed = 999,
                                n_jobs = 4):
-
-    # Define sparse matrix transformer if None, otherwise get information of it
-    if tr_spm is None:
-        tr_spm = CreateSparseMatrix(metr = metr, cate = cate, df_ref = df_ref).fit()
-    else:
-        metr = tr_spm.metr
-        cate = tr_spm.cate
+    #pdb.set_trace()
+    # # Define sparse matrix transformer if None, otherwise get information of it
+    # if tr_spm is None:
+    #     tr_spm = CreateSparseMatrix(metr = metr, cate = cate, df_ref = df_ref).fit()
+    # else:
+    #     metr = tr_spm.metr
+    #     cate = tr_spm.cate
 
     # df=df_train;  df_ref=df; target = "target"
     all_features = np.append(metr, cate)
@@ -1037,9 +1044,10 @@ def calc_varimp_by_permutation(df, fit, tr_spm = None,
 
     # Original performance
     if target_type in ["CLASS", "MULTICLASS"]:
-        perf_orig = auc(df[target], scale_predictions(fit.predict_proba(tr_spm.transform(df)), b_sample, b_all))
+        perf_orig = auc(df[target], scale_predictions(fit.predict_proba(df[features]), b_sample, b_all))
     else:
-        perf_orig = spear(df[target], fit.predict(tr_spm.transform(df)))
+        #perf_orig = spear(df[target], fit.predict(tr_spm.transform(df)))
+        perf_orig = pear(df[target], fit.predict(df[features]))
 
     # Performance per variable after permutation
     np.random.seed(random_seed)
@@ -1051,10 +1059,11 @@ def calc_varimp_by_permutation(df, fit, tr_spm = None,
         df_perm[feature] = df_perm[feature].values[i_perm]
         if target_type in ["CLASS", "MULTICLASS"]:
             perf = auc(df_perm[target],
-                       scale_predictions(fit.predict_proba(tr_spm.transform(df_perm)), b_sample, b_all))
+                       scale_predictions(fit.predict_proba(df_perm[features]), b_sample, b_all))
         else:
-            perf = spear(df_perm[target],
-                         fit.predict(tr_spm.transform(df_perm)))
+            # perf = spear(df_perm[target],
+            #              fit.predict(tr_spm.transform(df_perm)))
+            perf = pear(df_perm[target], fit.predict(df_perm[features]))
         return perf
 
     perf = Parallel(n_jobs = n_jobs, max_nbytes = '100M')(delayed(run_in_parallel)(df, feature)

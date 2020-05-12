@@ -11,7 +11,7 @@ from initialize import *
 from scipy.stats.mstats import winsorize
 
 # Main parameter
-horizon = 9
+horizon = 1
 
 # Specific parameters
 cutoff_corr = 0.4
@@ -19,14 +19,15 @@ cutoff_varimp = 0.1
 color = None
 
 # Load results from exploration
-with open("0_etl_h" + str(horizon) + ".pkl", "rb") as file:
-    d_vars = pickle.load(file)
-df, df_meta_sub = d_vars["df_train"], d_vars["df_meta_sub"]
+with open("0_prepare_h" + str(horizon) + ".pkl", "rb") as file:
+    d_pick = pickle.load(file)
+df, df_meta_sub = d_pick["df_h"].query("fold == 'train'"), d_pick["df_meta_sub"]
 
-# Check
 # Check
 print(setdiff(df.columns.values, df_meta_sub["variable"].values))
 print(setdiff(df_meta_sub.loc[df_meta_sub["status"] == "ready", "variable"].values, df.columns.values))
+
+# df_tmp = df[["id","date","dayofweek","snap","demand","demand_avg2week_sameweekday_samesnap"]].sort_values(["id","date"])
 
 
 # ######################################################################################################################
@@ -105,7 +106,7 @@ metr = setdiff(metr, remove)
 # Remove highly/perfectly (>=98%) correlated (the ones with less NA!)
 df[metr].describe()
 plot_corr(df.sample(n = int(1e5)), metr, cutoff = 0.9,
-          w=12, h = 12, pdf = plotloc + "corr_metr.pdf")
+          w=12, h = 12, pdf = plotloc + "corr_metr_h" + str(horizon) + ".pdf")
 remove = ["xxx", "xxx"]
 metr = setdiff(metr, remove)
 
@@ -117,6 +118,7 @@ metr = setdiff(metr, remove)
 # Univariate variable importance (again ONLY for non-missing observations!)
 varimp_metr_fold = calc_imp(df.sample(n = int(1e5)), metr, target = "myfold_num")
 print(varimp_metr_fold)
+
 
 # --- Missing indicator and imputation (must be done at the end of all processing)------------------------------------
 
@@ -160,7 +162,9 @@ print(toomany)
 toomany = setdiff(toomany, ["xxx", "xxx"])  # set exception for important variables
 
 # Create encoded features (for tree based models), i.e. numeric representation
-df = TargetEncoding(features = cate, encode_flag_column = "encode_flag", target = "demand").fit_transform(df)
+df = TargetEncoding(features = cate, encode_flag_column = "encode_flag", target = "demand",
+                    remove_burned_data = True).fit_transform(df)
+df["year_ENCODED"].value_counts()
 #df["MISS_" + miss + "_ENCODED"] = df["MISS_" + miss].apply(lambda x: x.map({"no_miss": 0, "miss": 1}))
 
 # Convert toomany features: lump levels and map missings to own level
@@ -192,7 +196,7 @@ plot_distr(df.sample(n = int(1e5)), features = cate,
 
 # Remove highly/perfectly (>=99%) correlated (the ones with less levels!)
 plot_corr(df.sample(n = int(1e5)), cate, cutoff = 0, n_cluster = 5,  # maybe plot miss separately
-          w = 12, h = 12, pdf = plotloc + "corr_cate.pdf")
+          w = 12, h = 12, pdf = plotloc + "corr_cate_h" + str(horizon) + ".pdf")
 
 
 # --- Time/fold depedency --------------------------------------------------------------------------------------------
