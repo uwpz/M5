@@ -15,7 +15,7 @@ from statsmodels.tsa.seasonal import seasonal_decompose
 
 # Specific parameters
 ids = ["id"]
-n_sample = 10000
+n_sample = 5000
 #n_sample = None
 n_jobs = 4
 plt.ioff(); matplotlib.use('Agg')
@@ -165,7 +165,7 @@ df = (df.merge((df[["id","demand"]].loc[df["demand"] > 0].groupby("id")["demand"
                 .reset_index()
                 .rename(columns = {0.5: "demand_median", 0.95: "demand_upperlimit"})),
                how = "left")
-      .assign(demand = lambda x: x[["demand", "demand_upperlimit"]].min(axis = 1))
+      .assign(demand = lambda x: np.where(x["demand"].isna(), np.nan, x[["demand", "demand_upperlimit"]].min(axis = 1)))
       .drop(columns = ["demand_upperlimit"]))
 
 # Adapt demand due to missing sell_price and xmas outlier
@@ -296,8 +296,8 @@ def run_in_parallel(df):
 # Run in parallel
 tmp = datetime.now()
 l_datasplit = [df.loc[df["id"].isin(x), ["date", "id", "demand", "snap", "dayofweek"]]
-               for x in np.split(df["id"].unique(), n_jobs)]
-l_return = (Parallel(n_jobs = n_jobs, max_nbytes = '100M')(delayed(run_in_parallel)(x) for x in l_datasplit))
+               for x in np.array_split(df["id"].unique(), n_jobs)]
+l_return = (Parallel(n_jobs = n_jobs, max_nbytes = '2000M')(delayed(run_in_parallel)(x) for x in l_datasplit))
 df_tsfe = pd.concat([x[0] for x in l_return])
 df_tsfe_sameweekday = pd.concat([x[1] for x in l_return])
 print(datetime.now() - tmp)
@@ -307,13 +307,11 @@ print(datetime.now() - tmp)
 # Prepare final data
 ########################################################################################################################
 
-# Remove Na-records
-df = df.loc[(df["demand"].notna())].reset_index(drop = True)
-
+# Remove Na-records from train
+df = df.loc[(df["fold"] == "train") & (df["demand"].notna()) | (df["fold"] == "test")].reset_index(drop = True)
+plt.close(fig="all")  # plt.close(plt.gcf())
 
 # --- Save image ------------------------------------------------------------------------------------------------------
-
-plt.close(fig="all")  # plt.close(plt.gcf())
 
 # Serialize
 with open("etl" + "_n" + str(n_sample) + ".pkl" if n_sample is not None else "etl.pkl", "wb") as file:

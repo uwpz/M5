@@ -236,11 +236,6 @@ setdiff(all_features, df.columns.values.tolist())
 setdiff(df.columns.values.tolist(), all_features)
 
 
-# --- Remove burned data ----------------------------------------------------------------------------------------
-
-df = df.query("fold != 'util'").reset_index(drop = True)
-
-
 # --- Save image ----------------------------------------------------------------------------------------------------
 
 # Clean up

@@ -1320,11 +1320,12 @@ class MapToomany(BaseEstimator, TransformerMixin):
 # Target Encoding
 class TargetEncoding(BaseEstimator, TransformerMixin):
     def __init__(self, features, encode_flag_column = "use_for_encoding", target = "target",
-                 remove_burned_data = False):
+                 remove_burned_data = False, suffix = "_ENCODED"):
         self.features = features
         self.encode_flag_column = encode_flag_column
         self.target = target
         self.remove_burned_data = remove_burned_data
+        self.suffix = suffix
         self._d_map = None
         self._statistics = None
 
@@ -1340,11 +1341,12 @@ class TargetEncoding(BaseEstimator, TransformerMixin):
                            .assign(rank = lambda x: np.arange(len(x)) + 1)
                            .set_index(x)["rank"]
                            .to_dict()) for x in self.features}
+        df.drop(columns = ["tmp"], inplace = True)
         self._statistics = {"_d_map": self._d_map}
         return self
 
     def transform(self, df):
-        df[self.features + "_ENCODED"] = df[self.features].apply(lambda x: x.map(self._d_map[x.name])
+        df[self.features + self.suffix] = df[self.features].apply(lambda x: x.map(self._d_map[x.name])
                                                                  .fillna(np.median(list(self._d_map[x.name].values()))))
         if self.remove_burned_data:
             return df.loc[df[self.encode_flag_column] != 1, :].reset_index(drop = True)

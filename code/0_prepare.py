@@ -14,7 +14,7 @@ from datetime import datetime
 horizon = 28
 
 # Load results from exploration
-with open("etl" + "_" + "n1000" + ".pkl", "rb") as file:
+with open("etl" + "_" + "n10000" + ".pkl", "rb") as file:
     d_pick = pickle.load(file)
 df, df_tsfe, df_tsfe_sameweekday = d_pick["df"], d_pick["df_tsfe"], d_pick["df_tsfe_sameweekday"]
 
