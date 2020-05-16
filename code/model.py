@@ -207,12 +207,13 @@ df_test["yhat"].describe()
 
 # --- Write submission -------------------------------------------------------------------------------------------------
 
-# Overwrite if no sell_price
-df_submit = df_test[["id", "d", "yhat"]].set_index(["id", "d"]).unstack("d")
+df_submit = df_test[["id", "d", "yhat"]].set_index(["id", "d"]).unstack("d").reset_index()
+df_submit.columns = ["id"] + ["F" + str(i) for i in range(1, 29)]
+(pd.read_csv(dataloc + "sample_submission.csv")[["id"]]
+ .merge(df_submit, how = "left")
+ .fillna(0)
+ .to_csv("data/submit.csv", index = False))
 
-# Write
-df_submit.columns = ["F" + str(i) for i in range(1, 29)]
-df_submit.to_csv("data/submit.csv")
 
 
 
