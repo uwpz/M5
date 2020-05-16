@@ -12,11 +12,10 @@ from datetime import datetime
 import gc
 plt.ion(); matplotlib.use('TkAgg')
 
-# Main parameter
-horizon = 28
-n_jobs = 16
+# Specific parameter
 n_sample = None
-
+horizon = 56
+n_jobs = 16
 
 # Load results from etl
 suffix = "" if n_sample is None else "_" + str(n_sample)
@@ -142,8 +141,8 @@ print(df_meta_sub.query("h_dep == 'Y' and modeltype == 'cate'")["variable"].valu
 ########################################################################################################################
 
 #df = pd.read_feather("df_final.ftr")
-df_test = df.query("fold == 'test'").reset_index(drop = True)
 df_train = df.query("fold == 'train'").reset_index(drop = True)
+df_test = df.query("fold == 'test'").reset_index(drop = True)
 del df
 gc.collect()
 
@@ -161,7 +160,7 @@ setdiff(df_train.columns.values.tolist(), all_features)
 tune = False
 if tune:
     # Sample
-    n = 30e6
+    n = 10e6
     df_tune = pd.concat([(df_train.query("myfold == 'train'")
                           .sample(n = int(n), random_state = 1)
                           .reset_index(drop = True)),
@@ -170,7 +169,7 @@ if tune:
     # LightGBM
     start = time.time()
     fit = (GridSearchCV_xlgb(lgbm.LGBMRegressor(n_jobs = n_jobs),
-                             {"n_estimators": [x for x in range(1100, 10100, 1000)], "learning_rate": [0.02],
+                             {"n_estimators": [x for x in range(1100, 8100, 1000)], "learning_rate": [0.02],
                               "num_leaves": [31], "min_child_samples": [10],
                               "colsample_bytree": [0.1], "subsample": [1], "subsample_freq": [1],
                               "objective": ["rmse"]},
@@ -181,7 +180,7 @@ if tune:
                              n_jobs = 1)
            .fit(df_tune[all_features], df_tune["demand"], categorical_feature = cate.tolist()))
     print((time.time()-start)/60)
-    plot_cvresult(fit.cv_results_, metric = "pear",
+    plot_cvresult(fit.cv_results_, metric = "rmse",
                   x_var = "n_estimators", color_var = "min_child_samples", style_var = "learning_rate",
                   column_var = "objective", row_var = "colsample_bytree")
 
@@ -207,8 +206,11 @@ df_test["yhat"].describe()
 
 # --- Write submission -------------------------------------------------------------------------------------------------
 
-df_submit = df_test[["id", "d", "yhat"]].set_index(["id", "d"]).unstack("d").reset_index()
-df_submit.columns = ["id"] + ["F" + str(i) for i in range(1, 29)]
+df_tmp = df_test[["id", "d", "yhat"]].set_index(["id", "d"]).unstack("d").reset_index()
+df_submit = pd.concat([pd.DataFrame(df_tmp.iloc[:, 1:29].values.round(5)).assign(id = df_tmp["id"]),
+                       (pd.DataFrame(df_tmp.iloc[:, 29:57].values.round(5)).assign(id = df_tmp["id"]
+                                                                           .str.replace("validation", "evaluation")))])
+df_submit.columns = ["F" + str(i) for i in range(1, 29)] + ["id"]
 (pd.read_csv(dataloc + "sample_submission.csv")[["id"]]
  .merge(df_submit, how = "left")
  .fillna(0)

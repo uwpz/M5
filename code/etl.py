@@ -12,8 +12,8 @@ from datetime import datetime
 import gc
 
 # Specific parameters
+n_sample = None
 ids = ["id"]
-n_sample = 10000
 n_jobs = 14
 plt.ioff(); matplotlib.use('Agg')
 # plt.ion(); matplotlib.use('TkAgg')
@@ -30,7 +30,7 @@ if n_sample is None:
     df_sales_orig = pd.read_csv(dataloc + "sales_train_validation.csv")
 else:
     df_sales_orig = pd.read_csv(dataloc + "sales_train_validation.csv").sample(n = int(n_sample), random_state = 1)
-df_sales_orig[["d_" + str(x) for x in range(1914, 1942)]] = pd.DataFrame([[np.nan for x in range(1914, 1942)]])
+df_sales_orig[["d_" + str(x) for x in range(1914, 1970)]] = pd.DataFrame([[np.nan for x in range(1914, 1970)]])
 df_sales = pd.melt(df_sales_orig, id_vars = df_sales_orig.columns.values[:6],
                    var_name = "d", value_name = "demand")
 holidays = ["ValentinesDay","StPatricksDay","Easter","Mother's day","Father's day","IndependenceDay",
