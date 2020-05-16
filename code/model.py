@@ -9,16 +9,23 @@ from initialize import *
 
 # Specific libraries
 from datetime import datetime
+import gc
 plt.ion(); matplotlib.use('TkAgg')
 
 # Main parameter
 horizon = 28
-n_jobs = 4
+n_jobs = 16
+n_sample = None
 
-# Load results from exploration
-with open("etl" + "_" + "n5000" + ".pkl", "rb") as file:
-    d_pick = pickle.load(file)
-df, df_tsfe, df_tsfe_sameweekday = d_pick["df"], d_pick["df_tsfe"], d_pick["df_tsfe_sameweekday"]
+
+# Load results from etl
+suffix = "" if n_sample is None else "_" + str(n_sample)
+df = pd.read_feather("df" + suffix + ".ftr")
+df_tsfe = pd.read_feather("df_tsfe" + suffix + ".ftr").set_index("date")
+df_tsfe_sameweekday = pd.read_feather("df_tsfe_sameweekday" + suffix + ".ftr").set_index("date")
+# with open("etl" + "_" + "n5000" + ".pkl", "rb") as file:
+#     d_pick = pickle.load(file)
+# df, df_tsfe, df_tsfe_sameweekday = d_pick["df"], d_pick["df_tsfe"], d_pick["df_tsfe_sameweekday"]
 
 
 # --- Check metadata -------------------------------------------------------------------------------------------
@@ -43,6 +50,7 @@ df.loc[df["year"] == 2011, "myfold"] = "util"
 df.groupby("myfold")["date"].describe()
 df["encode_flag"] = df["myfold"].map({"train": 0, "test": 0, "util": 1})  # Used for encoding
 df["fold_num"] = np.where(df["fold"] == "train", 0, 1)
+df.fold_num.value_counts()
 
 
 # --- Metric variables: Explore and adapt ------------------------------------------------------------------------------
@@ -66,7 +74,6 @@ print("\n\n varimp_metr_fold: \n", calc_imp(df.sample(n = int(1e5)), metr, targe
 # Define categorical covariates
 cate = df_meta_sub.query("h_dep == 'N' and modeltype == 'cate'")["variable"].values
 df = Convert(features = df[cate].dtypes.index.values[df[cate].dtypes != "object"], convert_to = "str").fit_transform(df)
-df[cate].dtypes
 
 # Convert "standard" features: map missings to own level
 df[cate] = df[cate].fillna("(Missing)")
@@ -77,7 +84,6 @@ print(df[cate].nunique().sort_values(ascending = False))  # number of levels
 df = TargetEncoding(features = cate, encode_flag_column = "encode_flag", target = "demand",
                     remove_burned_data = True,
                     suffix = "").fit_transform(df)
-df[cate].describe().round(1)
 
 # Univariate Varimp
 print("\n\n varimp_cate: \n", calc_imp(df.sample(n = int(1e5)), cate, target = "demand", target_type = "REGR"))
@@ -117,6 +123,8 @@ df = (df.set_index(["date", "id"])
 print(datetime.now() - tmp)
 del df_tsfe
 del df_tsfe_sameweekday
+df.to_feather("df_final.ftr")
+
 
 # Same analysis as above for metric
 metr = df_meta_sub.query("h_dep == 'Y' and modeltype == 'metr'")["variable"].values
@@ -133,13 +141,19 @@ print(df_meta_sub.query("h_dep == 'Y' and modeltype == 'cate'")["variable"].valu
 # Model
 ########################################################################################################################
 
+#df = pd.read_feather("df_final.ftr")
+df_test = df.query("fold == 'test'").reset_index(drop = True)
+df_train = df.query("fold == 'train'").reset_index(drop = True)
+del df
+gc.collect()
+
 # --- Define final features --------------------------------------------------------------------------------------------
 
 metr = df_meta_sub.query("modeltype == 'metr'")["variable"].values
 cate = df_meta_sub.query(" modeltype == 'cate'")["variable"].values
 all_features = np.concatenate([metr, cate])
-setdiff(all_features, df.columns.values.tolist())
-setdiff(df.columns.values.tolist(), all_features)
+setdiff(all_features, df_train.columns.values.tolist())
+setdiff(df_train.columns.values.tolist(), all_features)
 
 
 # --- Tune -------------------------------------------------------------------------------------------------------------
@@ -147,40 +161,38 @@ setdiff(df.columns.values.tolist(), all_features)
 tune = False
 if tune:
     # Sample
-    n = 1e5
-    df_tune = pd.concat([(df.query("myfold == 'train'")
-                          .sample(n = int(n), random_state = 1).reset_index(drop = True)),
-                         (df.query("myfold == 'test'"))]).reset_index(drop = True)
+    n = 30e6
+    df_tune = pd.concat([(df_train.query("myfold == 'train'")
+                          .sample(n = int(n), random_state = 1)
+                          .reset_index(drop = True)),
+                         (df_train.query("myfold == 'test'"))]).reset_index(drop = True)
 
     # LightGBM
     start = time.time()
-    fit = (GridSearchCV_xlgb(lgbm.LGBMRegressor(),
-                             {"n_estimators": [x for x in range(100, 3100, 500)], "learning_rate": [0.01],
-                              "num_leaves": [15, 31, 63, 127], "min_child_samples": [10, 30],
-                              "colsample_bytree": [0.2, 0.5, 1], "subsample": [0.1, 1],
-                              "objective": ["poisson"]},
+    fit = (GridSearchCV_xlgb(lgbm.LGBMRegressor(n_jobs = n_jobs),
+                             {"n_estimators": [x for x in range(1100, 10100, 1000)], "learning_rate": [0.02],
+                              "num_leaves": [31], "min_child_samples": [10],
+                              "colsample_bytree": [0.1], "subsample": [1], "subsample_freq": [1],
+                              "objective": ["rmse"]},
                              cv = TrainTestSep(1, fold_var = "myfold").split(df_tune),
                              refit = False,
                              scoring = d_scoring["REGR"],
                              return_train_score = True,
-                             n_jobs = n_jobs)
+                             n_jobs = 1)
            .fit(df_tune[all_features], df_tune["demand"], categorical_feature = cate.tolist()))
     print((time.time()-start)/60)
-    plot_cvresult(fit.cv_results_, metric = "rmse",
-                  x_var = "n_estimators", color_var = "num_leaves", style_var = "min_child_samples",
-                  column_var = "learning_rate", row_var = "colsample_bytree")
     plot_cvresult(fit.cv_results_, metric = "pear",
-                  x_var = "n_estimators", color_var = "num_leaves", style_var = "min_child_samples",
-                  column_var = "learning_rate", row_var = "colsample_bytree")
+                  x_var = "n_estimators", color_var = "min_child_samples", style_var = "learning_rate",
+                  column_var = "objective", row_var = "colsample_bytree")
+
 
 # --- Fit and Score ----------------------------------------------------------------------------------------------------
 
 # Fit
-df_train = df.query("fold == 'train'").sample(int(1e4))
-lgb_param = dict(n_estimators = 2100, learning_rate = 0.01,
-                 num_leaves = 8, min_child_samples = 10,
-                 colsample_bytree = 1, subsample = 1,
-                 objective = "poisson",
+lgb_param = dict(n_estimators = 8000, learning_rate = 0.02,
+                 num_leaves = 31, min_child_samples = 10,
+                 colsample_bytree = 0.1, subsample = 1,
+                 objective = "rmse",
                  n_jobs = n_jobs)
 fit = (lgbm.LGBMRegressor(**lgb_param)
        .fit(X = df_train[all_features],
@@ -188,14 +200,20 @@ fit = (lgbm.LGBMRegressor(**lgb_param)
             categorical_feature = cate.tolist()))
 
 # Score
-df_test = df.query("fold == 'test'").reset_index(drop = True)
-df_test["yhat"] = fit.predict(df.query("fold == 'test'")[all_features])
+yhat = fit.predict(df_test[all_features])
+df_test["yhat"] = np.where((df_test["sell_price_isna"] == 1) | (yhat < 0), 0, yhat)
+df_test["yhat"].describe()
 
 
 # --- Write submission -------------------------------------------------------------------------------------------------
 
 # Overwrite if no sell_price
-df_test["yhat_test"] = np.where(df_test["sell_price_isna"] == 1, 0, df_test["yhat"])
+df_submit = df_test[["id", "d", "yhat"]].set_index(["id", "d"]).unstack("d")
+
+# Write
+df_submit.columns = ["F" + str(i) for i in range(1, 29)]
+df_submit.to_csv("data/submit.csv")
+
 
 
 

@@ -1,5 +1,6 @@
 .idea/
 *.pkl
+*.ftr
 venv/
 *.lnk
 code/__pycache__

@@ -8,16 +8,13 @@ from initialize import *
 # import sys; sys.path.append(getcwd() + "\\code") #not needed if code is marked as "source" in pycharm
 
 # Specific libraries
-#  from scipy.stats.mstats import winsorize  # too slow
 from datetime import datetime
-from statsmodels.graphics.tsaplots import plot_pacf, plot_acf
-from statsmodels.tsa.seasonal import seasonal_decompose
+import gc
 
 # Specific parameters
 ids = ["id"]
-n_sample = 5000
-#n_sample = None
-n_jobs = 4
+n_sample = 10000
+n_jobs = 14
 plt.ioff(); matplotlib.use('Agg')
 # plt.ion(); matplotlib.use('TkAgg')
 
@@ -78,7 +75,7 @@ df["anydemand"] = np.where(df["demand"] > 0, 1, np.where(df["demand"].notna(), 0
 df["sell_price_isna"] = np.where(df["sell_price"].isna(), 1, 0)  # no sales if ==1
 df["snap"] = np.where(df["state_id"] == "CA", df["snap_CA"],
                       np.where(df["state_id"] == "TX", df["snap_TX"], df["snap_WI"]))  # compress snap
-df.drop(columns = ["snap_CA", "snap_TX", "snap_WI"], inplace = True)
+df = df.drop(columns = ["snap_CA", "snap_TX", "snap_WI"])
 
 '''
 # --- Some checks -----------------------------------------------------------------------------------------------------
@@ -157,6 +154,9 @@ plot_acf(ts, lags = 40)
 
 # --- Transform -----------------------------------------------------------------------------------------------------
 
+del df_sales_orig, df_sales, df_calendar, df_prices
+gc.collect()
+
 # Winsorize (and add median and iqr per id: not used so far)
 df = (df.merge((df[["id","demand"]].loc[df["demand"] > 0].groupby("id")["demand"]
                 .apply(lambda x: x.quantile(q = [0.25, 0.75, 0.5, 0.95]))
@@ -174,9 +174,9 @@ df.loc[df["holiday_name"] == "Christmas", ["demand", "anydemand"]] = np.nan
 
 # Set fold
 df["fold"] = np.where(df["date"] >= "2016-04-25", "test", "train")
-df.groupby("fold")["date"].nunique()
+#df.groupby("fold")["date"].nunique()
 df["myfold"] = np.where(df["date"] >= "2016-04-25", None, np.where(df["date"] >= "2016-03-28", "test", "train"))
-df.groupby("myfold")["date"].nunique()
+#df.groupby("myfold")["date"].nunique()
 df.myfold.describe()
 
 
@@ -281,13 +281,15 @@ def run_in_parallel(df):
     df_tsfe = (df[ids + ["demand"]].set_index(ids, append = True)
                .join(demand_lag, how = "left")
                .join(demand_avg, how = "left")
-               .reset_index(ids))
+               .reset_index())
     df_tsfe_sameweekday = (df[ids + ["demand"]].set_index(ids, append = True)
                            .join(demand_avg_sameweekday, how = "left")
                            .join(demand_avg_sameweekday_snap, how = "left")
-                           .reset_index(ids))
-    df_tmp = df_tsfe.reset_index().sort_values(by = ids + ["date"])  # Check
-    df_tmp_sameweekday = df_tsfe_sameweekday.reset_index().sort_values(by = ids + ["date"])  # Check
+                           .reset_index())
+    #df_tmp = df_tsfe.reset_index().sort_values(by = ids + ["date"])  # Check
+    #df_tmp_sameweekday = df_tsfe_sameweekday.reset_index().sort_values(by = ids + ["date"])  # Check
+    del df, demand_lag, demand_avg, demand_avg_sameweekday, demand_avg_sameweekday_snap
+    gc.collect()
     df_tsfe = df_tsfe.drop(columns = ["demand"])
     df_tsfe_sameweekday = df_tsfe_sameweekday.drop(columns = ["demand"])
 
@@ -296,11 +298,15 @@ def run_in_parallel(df):
 # Run in parallel
 tmp = datetime.now()
 l_datasplit = [df.loc[df["id"].isin(x), ["date", "id", "demand", "snap", "dayofweek"]]
-               for x in np.array_split(df["id"].unique(), n_jobs)]
-l_return = (Parallel(n_jobs = n_jobs, max_nbytes = '2000M')(delayed(run_in_parallel)(x) for x in l_datasplit))
-df_tsfe = pd.concat([x[0] for x in l_return])
-df_tsfe_sameweekday = pd.concat([x[1] for x in l_return])
+               for x in np.array_split(df["id"].unique(), 16)]
+l_return = (Parallel(n_jobs = 8, max_nbytes = '1000M')(delayed(run_in_parallel)(x) for x in l_datasplit))
 print(datetime.now() - tmp)
+del l_datasplit
+gc.collect()
+df_tsfe = pd.concat([x[0] for x in l_return]).reset_index(drop = True)
+df_tsfe_sameweekday = pd.concat([x[1] for x in l_return]).reset_index(drop = True)
+del l_return
+gc.collect()
 
 
 ########################################################################################################################
@@ -308,19 +314,22 @@ print(datetime.now() - tmp)
 ########################################################################################################################
 
 # Remove Na-records from train
-df = df.loc[(df["fold"] == "train") & (df["demand"].notna()) | (df["fold"] == "test")].reset_index(drop = True)
+df = df.loc[((df["fold"] == "train") & (df["demand"].notna())) | (df["fold"] == "test")].reset_index(drop = True)
 plt.close(fig="all")  # plt.close(plt.gcf())
 
 # --- Save image ------------------------------------------------------------------------------------------------------
 
+suffix = "" if n_sample is None else "_" + str(n_sample)
+df.to_feather("df" + suffix + ".ftr")
+df_tsfe.to_feather("df_tsfe" + suffix + ".ftr")
+df_tsfe_sameweekday.to_feather("df_tsfe_sameweekday" + suffix + ".ftr")
+
 # Serialize
-with open("etl" + "_n" + str(n_sample) + ".pkl" if n_sample is not None else "etl.pkl", "wb") as file:
-    pickle.dump({"df": df,
-                 "df_tsfe": df_tsfe,
-                 "df_tsfe_sameweekday": df_tsfe_sameweekday},
-                file)
-
-
-
+# with open("etl" + "_n" + str(n_sample) + "_ts.pkl" if n_sample is not None else "etl.pkl", "wb") as file:
+#     pickle.dump({"df": df#,
+#                  "df_tsfe": df_tsfe#,
+#                  "df_tsfe_sameweekday": df_tsfe_sameweekday
+#                 },
+#                 file, protocol = 4)
 
 

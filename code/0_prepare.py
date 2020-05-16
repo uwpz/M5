@@ -12,11 +12,16 @@ from datetime import datetime
 
 # Main parameter
 horizon = 28
+n_sample = 1000
 
-# Load results from exploration
-with open("etl" + "_" + "n10000" + ".pkl", "rb") as file:
-    d_pick = pickle.load(file)
-df, df_tsfe, df_tsfe_sameweekday = d_pick["df"], d_pick["df_tsfe"], d_pick["df_tsfe_sameweekday"]
+# Load results from etl
+suffix = "" if n_sample is None else "_" + str(n_sample)
+df = pd.read_feather("df" + suffix + ".ftr")
+df_tsfe = pd.read_feather("df_tsfe" + suffix + ".ftr").set_index("date")
+df_tsfe_sameweekday = pd.read_feather("df_tsfe_sameweekday" + suffix + ".ftr").set_index("date")
+# with open("etl" + "_" + "n5000" + ".pkl", "rb") as file:
+#     d_pick = pickle.load(file)
+# df, df_tsfe, df_tsfe_sameweekday = d_pick["df"], d_pick["df_tsfe"], d_pick["df_tsfe_sameweekday"]
 
 
 # ######################################################################################################################
