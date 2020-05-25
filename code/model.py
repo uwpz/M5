@@ -141,8 +141,8 @@ print(df_meta_sub.query("h_dep == 'Y' and modeltype == 'cate'")["variable"].valu
 ########################################################################################################################
 
 #df = pd.read_feather("df_final.ftr")
-df_train = df.query("myfold == 'train'").reset_index(drop = True)
-df_test = df.query("myfold == 'test'").reset_index(drop = True)
+df_train = df.query("fold == 'train'").reset_index(drop = True)
+df_test = df.query("fold == 'test'").reset_index(drop = True)
 del df
 gc.collect()
 
@@ -187,8 +187,9 @@ if tune:
 
 
 # --- Fit and Score ----------------------------------------------------------------------------------------------------
+
 # Sample with weight
-df_train = (df_train.sample(frac = 1, replace = True, weights = "weight", random_state = 1)
+df_train = (df_train.sample(frac = 1, replace = True, weights = "weight_all", random_state = 1)
             .reset_index(drop = True))
 
 # Fit
