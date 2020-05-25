@@ -12,9 +12,9 @@ from datetime import datetime
 import gc
 
 # Specific parameters
-n_sample = None
+n_sample = 1000
 ids = ["id"]
-n_jobs = 14
+n_jobs = 4
 plt.ioff(); matplotlib.use('Agg')
 # plt.ion(); matplotlib.use('TkAgg')
 
@@ -30,7 +30,7 @@ if n_sample is None:
     df_sales_orig = pd.read_csv(dataloc + "sales_train_validation.csv")
 else:
     df_sales_orig = pd.read_csv(dataloc + "sales_train_validation.csv").sample(n = int(n_sample), random_state = 1)
-df_sales_orig[["d_" + str(x) for x in range(1914, 1970)]] = pd.DataFrame([[np.nan for x in range(1914, 1970)]])
+df_sales_orig[["d_" + str(x) for x in range(1914, 1942)]] = pd.DataFrame([[np.nan for x in range(1914, 1942)]])
 df_sales = pd.melt(df_sales_orig, id_vars = df_sales_orig.columns.values[:6],
                    var_name = "d", value_name = "demand")
 holidays = ["ValentinesDay","StPatricksDay","Easter","Mother's day","Father's day","IndependenceDay",
@@ -158,19 +158,15 @@ del df_sales_orig, df_sales, df_calendar, df_prices
 gc.collect()
 
 # Winsorize (and add median and iqr per id: not used so far)
-df = (df.merge((df[["id","demand"]].loc[df["demand"] > 0].groupby("id")["demand"]
-                .apply(lambda x: x.quantile(q = [0.25, 0.75, 0.5, 0.95]))
-                .unstack()
-                .assign(demand_iqr = lambda x: x[0.75] - x[0.25]).drop(columns = [0.75, 0.25])
-                .reset_index()
-                .rename(columns = {0.5: "demand_median", 0.95: "demand_upperlimit"})),
-               how = "left")
-      .assign(demand = lambda x: np.where(x["demand"].isna(), np.nan, x[["demand", "demand_upperlimit"]].min(axis = 1)))
-      .drop(columns = ["demand_upperlimit"]))
-
-# Adapt demand due to missing sell_price and xmas outlier
-df.loc[df["sell_price_isna"] == 1, ["demand", "anydemand"]] = np.nan
-df.loc[df["holiday_name"] == "Christmas", ["demand", "anydemand"]] = np.nan
+# df = (df.merge((df[["id","demand"]].loc[df["demand"] > 0].groupby("id")["demand"]
+#                 .apply(lambda x: x.quantile(q = [0.25, 0.75, 0.5, 0.95]))
+#                 .unstack()
+#                 .assign(demand_iqr = lambda x: x[0.75] - x[0.25]).drop(columns = [0.75, 0.25])
+#                 .reset_index()
+#                 .rename(columns = {0.5: "demand_median", 0.95: "demand_upperlimit"})),
+#                how = "left")
+#       .assign(demand = lambda x: np.where(x["demand"].isna(), np.nan, x[["demand", "demand_upperlimit"]].min(axis = 1)))
+#       .drop(columns = ["demand_upperlimit"]))
 
 # Set fold
 df["fold"] = np.where(df["date"] >= "2016-04-25", "test", "train")
@@ -178,6 +174,29 @@ df["fold"] = np.where(df["date"] >= "2016-04-25", "test", "train")
 df["myfold"] = np.where(df["date"] >= "2016-04-25", None, np.where(df["date"] >= "2016-03-28", "test", "train"))
 #df.groupby("myfold")["date"].nunique()
 df.myfold.describe()
+
+# Add weight
+df = df.merge((df.query("fold == 'train'").groupby("id")["demand"].agg([("weight", "mean")]).reset_index()),
+              # .assign(weight = lambda x: x["weight"] / x["weight"].max())),
+              how = "left", on = "id")
+
+# Add rmse weight
+df = df.merge(df.set_index("date")[["id", "demand", "fold"]].assign(demand_lag1 = lambda x: x["demand"].shift(1))
+              .reset_index(drop = True)
+              .query("fold == 'train'")
+              .groupby("id").apply(lambda x: 1 / rmse(x["demand"], x["demand_lag1"]))
+              .reset_index(drop = False)
+              .rename(columns = {0: "weight_rmse"}),
+              #.assign(weight_rmse = lambda x: x["weight_rmse"] / x["weight_rmse"].max()),
+              how = "left", on = "id")
+df["weight_all"] = df["weight"] * df["weight_rmse"]
+
+# Normalize weights
+df[["weight", "weight_rmse", "weight_all"]] = df[["weight", "weight_rmse", "weight_all"]].apply(lambda x: x/x.max())
+
+# Adapt demand due to missing sell_price and xmas outlier
+df.loc[df["sell_price_isna"] == 1, ["demand", "anydemand"]] = np.nan
+df.loc[df["holiday_name"] == "Christmas", ["demand", "anydemand"]] = np.nan
 
 
 # ######################################################################################################################

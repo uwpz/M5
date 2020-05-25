@@ -13,9 +13,9 @@ import gc
 plt.ion(); matplotlib.use('TkAgg')
 
 # Specific parameter
-n_sample = None
-horizon = 56
-n_jobs = 16
+n_sample = 1000
+horizon = 28
+n_jobs = 4
 
 # Load results from etl
 suffix = "" if n_sample is None else "_" + str(n_sample)
@@ -141,15 +141,15 @@ print(df_meta_sub.query("h_dep == 'Y' and modeltype == 'cate'")["variable"].valu
 ########################################################################################################################
 
 #df = pd.read_feather("df_final.ftr")
-df_train = df.query("fold == 'train'").reset_index(drop = True)
-df_test = df.query("fold == 'test'").reset_index(drop = True)
+df_train = df.query("myfold == 'train'").reset_index(drop = True)
+df_test = df.query("myfold == 'test'").reset_index(drop = True)
 del df
 gc.collect()
 
 # --- Define final features --------------------------------------------------------------------------------------------
 
 metr = df_meta_sub.query("modeltype == 'metr'")["variable"].values
-cate = df_meta_sub.query(" modeltype == 'cate'")["variable"].values
+cate = df_meta_sub.query("modeltype == 'cate'")["variable"].values
 all_features = np.concatenate([metr, cate])
 setdiff(all_features, df_train.columns.values.tolist())
 setdiff(df_train.columns.values.tolist(), all_features)
@@ -160,7 +160,7 @@ setdiff(df_train.columns.values.tolist(), all_features)
 tune = False
 if tune:
     # Sample
-    n = 10e6
+    n = 1e6
     df_tune = pd.concat([(df_train.query("myfold == 'train'")
                           .sample(n = int(n), random_state = 1)
                           .reset_index(drop = True)),
@@ -169,7 +169,7 @@ if tune:
     # LightGBM
     start = time.time()
     fit = (GridSearchCV_xlgb(lgbm.LGBMRegressor(n_jobs = n_jobs),
-                             {"n_estimators": [x for x in range(1100, 8100, 1000)], "learning_rate": [0.02],
+                             {"n_estimators": [x for x in range(1100, 3100, 1000)], "learning_rate": [0.02],
                               "num_leaves": [31], "min_child_samples": [10],
                               "colsample_bytree": [0.1], "subsample": [1], "subsample_freq": [1],
                               "objective": ["rmse"]},
@@ -180,12 +180,16 @@ if tune:
                              n_jobs = 1)
            .fit(df_tune[all_features], df_tune["demand"], categorical_feature = cate.tolist()))
     print((time.time()-start)/60)
+    pd.DataFrame(fit.cv_results_)
     plot_cvresult(fit.cv_results_, metric = "rmse",
                   x_var = "n_estimators", color_var = "min_child_samples", style_var = "learning_rate",
                   column_var = "objective", row_var = "colsample_bytree")
 
 
 # --- Fit and Score ----------------------------------------------------------------------------------------------------
+# Sample with weight
+df_train = (df_train.sample(frac = 1, replace = True, weights = "weight", random_state = 1)
+            .reset_index(drop = True))
 
 # Fit
 lgb_param = dict(n_estimators = 8000, learning_rate = 0.02,
@@ -196,25 +200,51 @@ lgb_param = dict(n_estimators = 8000, learning_rate = 0.02,
 fit = (lgbm.LGBMRegressor(**lgb_param)
        .fit(X = df_train[all_features],
             y = df_train["demand"],
+            #sample_weight = df_train["weight_all"].values/min(df_train["weight_all"]),
             categorical_feature = cate.tolist()))
 
 # Score
 yhat = fit.predict(df_test[all_features])
+# rmse(yhat, df_test["demand"])
 df_test["yhat"] = np.where((df_test["sell_price_isna"] == 1) | (yhat < 0), 0, yhat)
-df_test["yhat"].describe()
-
+# rmse(df_test["yhat"], df_test["demand"])
+#df_test[["yhat","yhat_w","demand"]].corr()
+#rmse(df_test["yhat"], df_test["demand"])
 
 # --- Write submission -------------------------------------------------------------------------------------------------
 
 df_tmp = df_test[["id", "d", "yhat"]].set_index(["id", "d"]).unstack("d").reset_index()
 df_submit = pd.concat([pd.DataFrame(df_tmp.iloc[:, 1:29].values.round(5)).assign(id = df_tmp["id"]),
-                       (pd.DataFrame(df_tmp.iloc[:, 29:57].values.round(5)).assign(id = df_tmp["id"]
+                       (pd.DataFrame(df_tmp.iloc[:, 1:29].values.round(5)).assign(id = df_tmp["id"]
                                                                            .str.replace("validation", "evaluation")))])
 df_submit.columns = ["F" + str(i) for i in range(1, 29)] + ["id"]
 (pd.read_csv(dataloc + "sample_submission.csv")[["id"]]
- .merge(df_submit, how = "left")
+ .merge(df_submit, on = "id", how = "left")
  .fillna(0)
  .to_csv("data/submit.csv", index = False))
+
+
+'''
+df_my = pd.read_csv("data/submit_firsttry.csv").iloc[:30490, :]
+df_kernel = df_my[["id"]].merge(pd.read_csv("data/submission_kernel.csv").iloc[:30490, :], how="left")
+df_t = df_my[["id"]].merge(pd.read_csv("data/sales_train_validation.csv").iloc[:30490, :], how="left")
+
+
+df_tmp = pd.DataFrame(dict(my=df_my.mean(axis=1).values,
+                           kernel=df_kernel.mean(axis=1).values,
+                           train = df_t.iloc[:,6:].mean(axis=1).values))
+df_tmp = pd.DataFrame(dict(my=df_my.iloc[:, 1:].values.flatten(),
+                           kernel=df_kernel.iloc[:, 1:].values.flatten()))
+df_tmp.corr()
+plt.scatter(df_tmp.my, df_tmp.train, s=0.1)
+plt.scatter(df_tmp.kernel, df_tmp.train, s=0.1)
+
+df_blub = df.groupby(["id","myfold"])["demand"].mean().unstack("myfold")
+plt.scatter(df_blub.train, df_blub.test, s=0.1)
+
+
+'''
+
 
 
 
