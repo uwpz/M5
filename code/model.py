@@ -189,7 +189,7 @@ if tune:
 # --- Fit and Score ----------------------------------------------------------------------------------------------------
 
 # Sample with weight
-df_train = (df_train.sample(frac = 1, replace = True, weights = "weight_all", random_state = 1)
+df_train = (df_train.sample(frac = 1, replace = True, weights = "weight_rmse", random_state = 1)
             .reset_index(drop = True))
 
 # Fit

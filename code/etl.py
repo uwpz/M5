@@ -73,9 +73,11 @@ df = (df_sales
 # Important columns
 df["anydemand"] = np.where(df["demand"] > 0, 1, np.where(df["demand"].notna(), 0, np.nan))
 df["sell_price_isna"] = np.where(df["sell_price"].isna(), 1, 0)  # no sales if ==1
+df["sales"] = (df["demand"] * df["sell_price"]).fillna(0)
 df["snap"] = np.where(df["state_id"] == "CA", df["snap_CA"],
                       np.where(df["state_id"] == "TX", df["snap_TX"], df["snap_WI"]))  # compress snap
 df = df.drop(columns = ["snap_CA", "snap_TX", "snap_WI"])
+
 
 '''
 # --- Some checks -----------------------------------------------------------------------------------------------------
@@ -176,7 +178,7 @@ df["myfold"] = np.where(df["date"] >= "2016-04-25", None, np.where(df["date"] >=
 df.myfold.describe()
 
 # Add weight
-df = df.merge((df.query("fold == 'train'").groupby("id")["demand"].agg([("weight", "mean")]).reset_index()),
+df = df.merge((df.query("fold == 'train'").groupby("id")["sales"].agg([("weight", "mean")]).reset_index()),
               # .assign(weight = lambda x: x["weight"] / x["weight"].max())),
               how = "left", on = "id")
 
