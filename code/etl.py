@@ -13,8 +13,8 @@ import gc
 
 # Specific parameters
 n_sample = 1000
+n_jobs = 16
 ids = ["id"]
-n_jobs = 4
 plt.ioff(); matplotlib.use('Agg')
 # plt.ion(); matplotlib.use('TkAgg')
 
@@ -178,7 +178,7 @@ df["myfold"] = np.where(df["date"] >= "2016-04-25", None, np.where(df["date"] >=
 df.myfold.describe()
 
 # Add weight
-df = df.merge((df.query("fold == 'train'").groupby("id")["sales"].agg([("weight", "mean")]).reset_index()),
+df = df.merge((df.query("myfold == 'train'").groupby("id")["sales"].agg([("weight", "mean")]).reset_index()),
               # .assign(weight = lambda x: x["weight"] / x["weight"].max())),
               how = "left", on = "id")
 
@@ -186,7 +186,7 @@ df = df.merge((df.query("fold == 'train'").groupby("id")["sales"].agg([("weight"
 df = df.merge(df.set_index("date")[["id", "demand", "fold"]].assign(demand_lag1 = lambda x: x["demand"].shift(1))
               .reset_index(drop = True)
               .query("fold == 'train'")
-              .groupby("id").apply(lambda x: 1 / rmse(x["demand"], x["demand_lag1"]))
+              .groupby("id").apply(lambda x: x["demand"].mean() / rmse(x["demand"], x["demand_lag1"]))
               .reset_index(drop = False)
               .rename(columns = {0: "weight_rmse"}),
               #.assign(weight_rmse = lambda x: x["weight_rmse"] / x["weight_rmse"].max()),

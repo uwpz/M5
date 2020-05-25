@@ -13,9 +13,9 @@ import gc
 plt.ion(); matplotlib.use('TkAgg')
 
 # Specific parameter
-n_sample = 1000
+n_sample = None
+n_jobs = 16
 horizon = 28
-n_jobs = 4
 
 # Load results from etl
 suffix = "" if n_sample is None else "_" + str(n_sample)
@@ -189,7 +189,7 @@ if tune:
 # --- Fit and Score ----------------------------------------------------------------------------------------------------
 
 # Sample with weight
-df_train = (df_train.sample(frac = 1, replace = True, weights = "weight_rmse", random_state = 1)
+df_train = (df_train.sample(frac = 1, replace = True, weights = "weight_all", random_state = 1)
             .reset_index(drop = True))
 
 # Fit
@@ -212,12 +212,13 @@ df_test["yhat"] = np.where((df_test["sell_price_isna"] == 1) | (yhat < 0), 0, yh
 #df_test[["yhat","yhat_w","demand"]].corr()
 #rmse(df_test["yhat"], df_test["demand"])
 
+
 # --- Write submission -------------------------------------------------------------------------------------------------
 
 df_tmp = df_test[["id", "d", "yhat"]].set_index(["id", "d"]).unstack("d").reset_index()
 df_submit = pd.concat([pd.DataFrame(df_tmp.iloc[:, 1:29].values.round(5)).assign(id = df_tmp["id"]),
-                       (pd.DataFrame(df_tmp.iloc[:, 1:29].values.round(5)).assign(id = df_tmp["id"]
-                                                                           .str.replace("validation", "evaluation")))])
+                       (pd.DataFrame(df_tmp.iloc[:, 1:29].values.round(5))
+                        .assign(id = df_tmp["id"].str.replace("validation", "evaluation")))])
 df_submit.columns = ["F" + str(i) for i in range(1, 29)] + ["id"]
 (pd.read_csv(dataloc + "sample_submission.csv")[["id"]]
  .merge(df_submit, on = "id", how = "left")
