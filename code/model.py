@@ -13,7 +13,7 @@ import gc
 plt.ion(); matplotlib.use('TkAgg')
 
 # Specific parameter
-n_sample = None
+n_sample = 10000
 n_jobs = 16
 horizon = 28
 
@@ -38,6 +38,35 @@ print(setdiff(df_meta.loc[(df_meta["status"] == "ready") & (df_meta["h_dep"] == 
 
 # Filter on "ready"
 df_meta_sub = df_meta.query("status == 'ready'")
+
+
+# --- Eval metric help dataframes -------------------------------------------------------------------------------------
+
+# Aggregation levels
+d_comb = {1: ["dummy"],
+          2: ["state_id"], 3: ["store_id"], 4: ["cat_id"], 5: ["dept_id"],
+          6: ["state_id", "cat_id"], 7: ["state_id", "dept_id"], 8: ["store_id", "cat_id"], 9: ["store_id", "dept_id"],
+          10: ["item_id"], 11: ["item_id", "state_id"], 12: ["item_id", "store_id"]}
+
+# Sales
+df_sales = pd.DataFrame()
+denom = 12 * df.query("myfold == 'test'")["sales"].sum()
+for key in d_comb:
+    df_tmp = (df.query("myfold == 'test'").assign(dummy = "dummy").groupby(d_comb[key])[["sales"]].sum()
+              .assign(sales = lambda x: x["sales"]/denom)
+              .assign(key = key)
+              .reset_index())
+    df_sales = pd.concat([df_sales, df_tmp], ignore_index = True)
+
+# rmse_denom
+df_rmse_denom = pd.DataFrame()
+for key in d_comb:
+    df_tmp = (df.query("fold == 'train'").assign(dummy = "dummy")
+              .groupby(d_comb[key] + ["date"])["demand", "lagdemand"].sum().reset_index("date", drop = True)
+              .groupby(d_comb[key]).apply(lambda x: pd.Series({"rmse_denom": rmse(x["demand"], x["lagdemand"])}))
+              .assign(key = key)
+              .reset_index())
+    df_rmse_denom = pd.concat([df_rmse_denom, df_tmp], ignore_index = True)
 
 
 # ######################################################################################################################
@@ -141,8 +170,8 @@ print(df_meta_sub.query("h_dep == 'Y' and modeltype == 'cate'")["variable"].valu
 ########################################################################################################################
 
 #df = pd.read_feather("df_final.ftr")
-df_train = df.query("fold == 'train'").reset_index(drop = True)  # TODO
-df_test = df.query("fold == 'test'").reset_index(drop = True)
+df_train = df.query("myfold == 'train'").reset_index(drop = True)  # TODO
+df_test = df.query("myfold == 'test'").reset_index(drop = True)
 del df  # TODO
 gc.collect()
 
@@ -163,19 +192,38 @@ if tune:
     n = 1e6
     df_tune = pd.concat([(df_train.query("myfold == 'train'")
                           .sample(n = int(n), random_state = 1)
+                         # .sample(frac = 1, replace = True, weights = "weight_all", random_state = 2)
                           .reset_index(drop = True)),
                          (df_train.query("myfold == 'test'"))]).reset_index(drop = True)
+
+
+    def wrmsse(y_true, y_pred):
+        #pdb.set_trace()
+        df_holdout = df_tune.iloc[y_true.index.values]
+        df_rmse = pd.DataFrame()
+        for key in d_comb:
+            df_tmp = (df_holdout.assign(yhat = y_pred)
+                      .assign(dummy = "dummy")
+                      .groupby(d_comb[key] + ["date"])["demand", "yhat"].sum().reset_index("date", drop = True)
+                      .groupby(d_comb[key]).apply(lambda x: pd.Series({"rmse": rmse(x["demand"], x["yhat"])}))
+                      .assign(key = key)
+                      .reset_index())
+            df_rmse = pd.concat([df_rmse, df_tmp], ignore_index = True)
+        return (df_rmse.merge(df_rmse_denom, how = "left").merge(df_sales, how = "left")
+                  .eval("wrmsse = sales * rmse/rmse_denom")["wrmsse"].sum())
 
     # LightGBM
     start = time.time()
     fit = (GridSearchCV_xlgb(lgbm.LGBMRegressor(n_jobs = n_jobs),
-                             {"n_estimators": [x for x in range(1100, 3100, 1000)], "learning_rate": [0.02],
+                             {"n_estimators": [x for x in range(1100, 8100, 1000)], "learning_rate": [0.02],
                               "num_leaves": [31], "min_child_samples": [10],
                               "colsample_bytree": [0.1], "subsample": [1], "subsample_freq": [1],
                               "objective": ["rmse"]},
                              cv = TrainTestSep(1, fold_var = "myfold").split(df_tune),
                              refit = False,
-                             scoring = d_scoring["REGR"],
+                             #scoring = d_scoring["REGR"],
+                             scoring = {"rmse": make_scorer(rmse, greater_is_better = False),
+                                        "wrmsse": make_scorer(wrmsse, greater_is_better = False)},
                              return_train_score = True,
                              n_jobs = 1)
            .fit(df_tune[all_features], df_tune["demand"], categorical_feature = cate.tolist()))
@@ -184,17 +232,20 @@ if tune:
     plot_cvresult(fit.cv_results_, metric = "rmse",
                   x_var = "n_estimators", color_var = "min_child_samples", style_var = "learning_rate",
                   column_var = "objective", row_var = "colsample_bytree")
+    plot_cvresult(fit.cv_results_, metric = "wrmsse",
+                  x_var = "n_estimators", color_var = "min_child_samples", style_var = "learning_rate",
+                  column_var = "objective", row_var = "colsample_bytree")
 
 
 # --- Fit and Score ----------------------------------------------------------------------------------------------------
 
 # Sample with weight
-df_train = (df_train.sample(frac = 1, replace = True, weights = "weight_all", random_state = 1)
-           # .query("year >= 2014")
-            .reset_index(drop = True))
+df_train = (df_train.sample(frac = 1, replace = True, weights = "weight_all", random_state = 2)
+            #.query("year >= 2014")
+            .reset_index(drop = True))  # TODO
 
 # Fit
-lgb_param = dict(n_estimators = 8000, learning_rate = 0.02,  # TODO
+lgb_param = dict(n_estimators = 1000, learning_rate = 0.02,  # TODO
                  num_leaves = 31, min_child_samples = 10,
                  colsample_bytree = 0.1, subsample = 1,
                  objective = "rmse",
@@ -208,6 +259,23 @@ fit = (lgbm.LGBMRegressor(**lgb_param)
 # Score
 yhat = fit.predict(df_test[all_features])
 df_test["yhat"] = np.where((df_test["sell_price_isna"] == 1) | (yhat < 0), 0, yhat)
+
+'''
+# Rmse
+df_rmse = pd.DataFrame()
+for key in d_comb:
+    df_tmp = (df_test.assign(dummy = "dummy")
+              .groupby(d_comb[key] + ["date"])["demand", "yhat"].sum().reset_index("date", drop = True)
+              .groupby(d_comb[key]).apply(lambda x: pd.Series({"rmse": rmse(x["demand"], x["yhat"])}))
+              .assign(key = key)
+              .reset_index())
+    df_rmse = pd.concat([df_rmse, df_tmp], ignore_index = True)
+df_tmp = (df_rmse.merge(df_rmse_denom, how = "left").merge(df_sales, how = "left")
+          .eval("wrmsse = sales * rmse/rmse_denom"))
+df_tmp.groupby("key")["wrmsse"].sum()
+df_tmp["wrmsse"].sum()
+'''
+
 '''
 rmse(df_test["yhat"], df_test["demand"])
 df_check = (df_test.groupby("id")["yhat", "demand"].mean()

@@ -12,7 +12,7 @@ from datetime import datetime
 import gc
 
 # Specific parameters
-n_sample = None
+n_sample = 10000
 n_jobs = 16
 ids = ["id"]
 plt.ioff(); matplotlib.use('Agg')
@@ -177,24 +177,28 @@ df["myfold"] = np.where(df["date"] >= "2016-04-25", None, np.where(df["date"] >=
 #df.groupby("myfold")["date"].nunique()
 df.myfold.describe()
 
-# Add weight
-df = df.merge((df.query("myfold == 'train'").groupby("id")["sales"].agg([("weight", "mean")]).reset_index()),
-              # .assign(weight = lambda x: x["weight"] / x["weight"].max())),
-              how = "left", on = "id")
+# Add sales weight
+df = df.merge(df.query("myfold == 'test'").groupby("id")[["sales"]].sum().rename(columns = {"sales": "weight_sales"})
+               .reset_index(),
+              how = "left")
+
+# Add lagdemand
+df = df.merge(df[["id", "date", "demand"]].set_index("date").shift(1, "D").rename(columns = {"demand": "lagdemand"})
+              .reset_index(),
+              how = "left")
+# df = (df.groupby("id").apply(lambda x: x.set_index("date")
+#                              .assign(lagdemand = lambda y: y["demand"].shift(1, "D")).reset_index())
+#       .reset_index("id",drop = True))
 
 # Add rmse weight
-df = df.merge(df.set_index("date")[["id", "demand", "fold"]].assign(demand_lag1 = lambda x: x["demand"].shift(1))
-              .reset_index(drop = True)
-              .query("fold == 'train'")
-              .groupby("id").apply(lambda x: x["demand"].mean() / rmse(x["demand"], x["demand_lag1"]))
+df = df.merge(df.query("fold == 'train'")
+              .groupby("id").apply(lambda x: x["demand"].mean() / rmse(x["demand"], x["lagdemand"]))
+              #.groupby("id").apply(lambda x: 1 / rmse(x["demand"], x["lag_demand"]))
               .reset_index(drop = False)
               .rename(columns = {0: "weight_rmse"}),
-              #.assign(weight_rmse = lambda x: x["weight_rmse"] / x["weight_rmse"].max()),
               how = "left", on = "id")
-df["weight_all"] = df["weight"] * df["weight_rmse"]
-
-# Normalize weights
-df[["weight", "weight_rmse", "weight_all"]] = df[["weight", "weight_rmse", "weight_all"]].apply(lambda x: x/x.max())
+df["weight_all"] = df["weight_sales"] * df["weight_rmse"]
+#df[["weight", "weight_rmse", "weight_all"]] = df[["weight", "weight_rmse", "weight_all"]].apply(lambda x: x/x.max())
 
 # Adapt demand due to missing sell_price and xmas outlier
 df.loc[df["sell_price_isna"] == 1, ["demand", "anydemand"]] = np.nan
