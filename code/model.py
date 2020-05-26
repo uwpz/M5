@@ -141,9 +141,9 @@ print(df_meta_sub.query("h_dep == 'Y' and modeltype == 'cate'")["variable"].valu
 ########################################################################################################################
 
 #df = pd.read_feather("df_final.ftr")
-df_train = df.query("fold == 'train'").reset_index(drop = True)
+df_train = df.query("fold == 'train'").reset_index(drop = True)  # TODO
 df_test = df.query("fold == 'test'").reset_index(drop = True)
-del df
+del df  # TODO
 gc.collect()
 
 # --- Define final features --------------------------------------------------------------------------------------------
@@ -190,10 +190,11 @@ if tune:
 
 # Sample with weight
 df_train = (df_train.sample(frac = 1, replace = True, weights = "weight_all", random_state = 1)
+           # .query("year >= 2014")
             .reset_index(drop = True))
 
 # Fit
-lgb_param = dict(n_estimators = 8000, learning_rate = 0.02,
+lgb_param = dict(n_estimators = 8000, learning_rate = 0.02,  # TODO
                  num_leaves = 31, min_child_samples = 10,
                  colsample_bytree = 0.1, subsample = 1,
                  objective = "rmse",
@@ -206,12 +207,15 @@ fit = (lgbm.LGBMRegressor(**lgb_param)
 
 # Score
 yhat = fit.predict(df_test[all_features])
-# rmse(yhat, df_test["demand"])
 df_test["yhat"] = np.where((df_test["sell_price_isna"] == 1) | (yhat < 0), 0, yhat)
-# rmse(df_test["yhat"], df_test["demand"])
-#df_test[["yhat","yhat_w","demand"]].corr()
-#rmse(df_test["yhat"], df_test["demand"])
-
+'''
+rmse(df_test["yhat"], df_test["demand"])
+df_check = (df_test.groupby("id")["yhat", "demand"].mean()
+            .join(df_train.groupby("id")[["demand"]].mean().rename(columns = {"demand": "demand_train"}))
+            .eval("yhat_minus_demand = yhat-demand")
+            .sort_values("yhat_minus_demand")
+            .reset_index())
+'''
 
 # --- Write submission -------------------------------------------------------------------------------------------------
 

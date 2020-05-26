@@ -12,7 +12,7 @@ from datetime import datetime
 import gc
 
 # Specific parameters
-n_sample = 1000
+n_sample = None
 n_jobs = 16
 ids = ["id"]
 plt.ioff(); matplotlib.use('Agg')
