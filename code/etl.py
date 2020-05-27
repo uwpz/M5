@@ -12,11 +12,13 @@ from datetime import datetime
 import gc
 
 # Specific parameters
-n_sample = 10000
+n_sample = None
 n_jobs = 16
 ids = ["id"]
 plt.ioff(); matplotlib.use('Agg')
 # plt.ion(); matplotlib.use('TkAgg')
+
+begin = datetime.now()
 
 
 # ######################################################################################################################
@@ -357,4 +359,5 @@ df_tsfe_sameweekday.to_feather("df_tsfe_sameweekday" + suffix + ".ftr")
 #                 },
 #                 file, protocol = 4)
 
+print(datetime.now() - begin)
 

@@ -13,9 +13,12 @@ import gc
 plt.ion(); matplotlib.use('TkAgg')
 
 # Specific parameter
-n_sample = 10000
+n_sample = None
 n_jobs = 16
 horizon = 28
+
+begin = datetime.now()
+
 
 # Load results from etl
 suffix = "" if n_sample is None else "_" + str(n_sample)
@@ -38,35 +41,6 @@ print(setdiff(df_meta.loc[(df_meta["status"] == "ready") & (df_meta["h_dep"] == 
 
 # Filter on "ready"
 df_meta_sub = df_meta.query("status == 'ready'")
-
-
-# --- Eval metric help dataframes -------------------------------------------------------------------------------------
-
-# Aggregation levels
-d_comb = {1: ["dummy"],
-          2: ["state_id"], 3: ["store_id"], 4: ["cat_id"], 5: ["dept_id"],
-          6: ["state_id", "cat_id"], 7: ["state_id", "dept_id"], 8: ["store_id", "cat_id"], 9: ["store_id", "dept_id"],
-          10: ["item_id"], 11: ["item_id", "state_id"], 12: ["item_id", "store_id"]}
-
-# Sales
-df_sales = pd.DataFrame()
-denom = 12 * df.query("myfold == 'test'")["sales"].sum()
-for key in d_comb:
-    df_tmp = (df.query("myfold == 'test'").assign(dummy = "dummy").groupby(d_comb[key])[["sales"]].sum()
-              .assign(sales = lambda x: x["sales"]/denom)
-              .assign(key = key)
-              .reset_index())
-    df_sales = pd.concat([df_sales, df_tmp], ignore_index = True)
-
-# rmse_denom
-df_rmse_denom = pd.DataFrame()
-for key in d_comb:
-    df_tmp = (df.query("fold == 'train'").assign(dummy = "dummy")
-              .groupby(d_comb[key] + ["date"])["demand", "lagdemand"].sum().reset_index("date", drop = True)
-              .groupby(d_comb[key]).apply(lambda x: pd.Series({"rmse_denom": rmse(x["demand"], x["lagdemand"])}))
-              .assign(key = key)
-              .reset_index())
-    df_rmse_denom = pd.concat([df_rmse_denom, df_tmp], ignore_index = True)
 
 
 # ######################################################################################################################
@@ -110,7 +84,7 @@ print(df[cate].nunique().sort_values(ascending = False))  # number of levels
 
 # Create encoded features (for tree based models), i.e. numeric representation
 df = TargetEncoding(features = cate, encode_flag_column = "encode_flag", target = "demand",
-                    remove_burned_data = True,
+                    remove_burned_data = False,
                     suffix = "").fit_transform(df)
 
 # Univariate Varimp
@@ -169,13 +143,48 @@ print(df_meta_sub.query("h_dep == 'Y' and modeltype == 'cate'")["variable"].valu
 # Model
 ########################################################################################################################
 
+# --- Eval metric help dataframes -------------------------------------------------------------------------------------
+
+# Aggregation levels
+d_comb = {1: ["dummy"],
+          2: ["state_id"], 3: ["store_id"], 4: ["cat_id"], 5: ["dept_id"],
+          6: ["state_id", "cat_id"], 7: ["state_id", "dept_id"], 8: ["store_id", "cat_id"], 9: ["store_id", "dept_id"],
+          10: ["item_id"], 11: ["item_id", "state_id"], 12: ["item_id", "store_id"]}
+
+# join cols
+#join_cols = ["key", "dummy", "state_id", "store_id", "cat_id", "dept_id", "item_id"]
+
+# Sales
+df_sales = pd.DataFrame()
+denom = 12 * df.query("myfold == 'test'")["sales"].sum()
+for key in d_comb:
+    df_tmp = (df.query("myfold == 'test'").assign(dummy = "dummy").groupby(d_comb[key])[["sales"]].sum()
+              .assign(sales = lambda x: x["sales"]/denom)
+              .assign(key = key)
+              .reset_index())
+    df_sales = pd.concat([df_sales, df_tmp], ignore_index = True)
+#df_sales[join_cols] = df_sales[join_cols].astype("str")
+
+# rmse_denom
+df_rmse_denom = pd.DataFrame()
+for key in d_comb:
+    df_tmp = (df.query("fold == 'train'").assign(dummy = "dummy")
+              .groupby(d_comb[key] + ["date"])["demand", "lagdemand"].sum().reset_index("date", drop = True)
+              .groupby(d_comb[key]).apply(lambda x: pd.Series({"rmse_denom": rmse(x["demand"], x["lagdemand"])}))
+              .assign(key = key)
+              .reset_index())
+    df_rmse_denom = pd.concat([df_rmse_denom, df_tmp], ignore_index = True)
+#df_rmse_denom[join_cols] = df_rmse_denom[join_cols].astype("str")
+
+
+# --- Prepare data and define final features ---------------------------------------------------------------------------
+
 #df = pd.read_feather("df_final.ftr")
-df_train = df.query("myfold == 'train'").reset_index(drop = True)  # TODO
-df_test = df.query("myfold == 'test'").reset_index(drop = True)
+df = df.query("myfold != 'util'").reset_index(drop = True)
+df_train = df.query("fold == 'train'").reset_index(drop = True)  # TODO
+df_test = df.query("fold == 'test'").reset_index(drop = True)
 del df  # TODO
 gc.collect()
-
-# --- Define final features --------------------------------------------------------------------------------------------
 
 metr = df_meta_sub.query("modeltype == 'metr'")["variable"].values
 cate = df_meta_sub.query("modeltype == 'cate'")["variable"].values
@@ -183,13 +192,15 @@ all_features = np.concatenate([metr, cate])
 setdiff(all_features, df_train.columns.values.tolist())
 setdiff(df_train.columns.values.tolist(), all_features)
 
+print(datetime.now() - begin)
+
 
 # --- Tune -------------------------------------------------------------------------------------------------------------
 
 tune = False
 if tune:
     # Sample
-    n = 1e6
+    n = 10e6
     df_tune = pd.concat([(df_train.query("myfold == 'train'")
                           .sample(n = int(n), random_state = 1)
                          # .sample(frac = 1, replace = True, weights = "weight_all", random_state = 2)
@@ -224,7 +235,7 @@ if tune:
                              #scoring = d_scoring["REGR"],
                              scoring = {"rmse": make_scorer(rmse, greater_is_better = False),
                                         "wrmsse": make_scorer(wrmsse, greater_is_better = False)},
-                             return_train_score = True,
+                             return_train_score = False,
                              n_jobs = 1)
            .fit(df_tune[all_features], df_tune["demand"], categorical_feature = cate.tolist()))
     print((time.time()-start)/60)
@@ -240,12 +251,12 @@ if tune:
 # --- Fit and Score ----------------------------------------------------------------------------------------------------
 
 # Sample with weight
-df_train = (df_train.sample(frac = 1, replace = True, weights = "weight_all", random_state = 2)
+df_train = (df_train.sample(frac = 1, replace = True, weights = "weight_all", random_state = 2)  # TODO
             #.query("year >= 2014")
-            .reset_index(drop = True))  # TODO
+            .reset_index(drop = True))
 
 # Fit
-lgb_param = dict(n_estimators = 1000, learning_rate = 0.02,  # TODO
+lgb_param = dict(n_estimators = 8000, learning_rate = 0.02,  # TODO
                  num_leaves = 31, min_child_samples = 10,
                  colsample_bytree = 0.1, subsample = 1,
                  objective = "rmse",
@@ -262,6 +273,8 @@ df_test["yhat"] = np.where((df_test["sell_price_isna"] == 1) | (yhat < 0), 0, yh
 
 '''
 # Rmse
+rmse(df_test["yhat"], df_test["demand"])
+
 df_rmse = pd.DataFrame()
 for key in d_comb:
     df_tmp = (df_test.assign(dummy = "dummy")
@@ -270,6 +283,7 @@ for key in d_comb:
               .assign(key = key)
               .reset_index())
     df_rmse = pd.concat([df_rmse, df_tmp], ignore_index = True)
+#df_rmse[join_cols] = df_rmse[join_cols].astype("str")    
 df_tmp = (df_rmse.merge(df_rmse_denom, how = "left").merge(df_sales, how = "left")
           .eval("wrmsse = sales * rmse/rmse_denom"))
 df_tmp.groupby("key")["wrmsse"].sum()
@@ -277,7 +291,7 @@ df_tmp["wrmsse"].sum()
 '''
 
 '''
-rmse(df_test["yhat"], df_test["demand"])
+
 df_check = (df_test.groupby("id")["yhat", "demand"].mean()
             .join(df_train.groupby("id")[["demand"]].mean().rename(columns = {"demand": "demand_train"}))
             .eval("yhat_minus_demand = yhat-demand")
