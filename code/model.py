@@ -125,7 +125,6 @@ df = (df.set_index(["date", "id"])
 print(datetime.now() - tmp)
 del df_tsfe
 del df_tsfe_sameweekday
-df.to_feather("df_final.ftr")
 
 
 # Same analysis as above for metric
@@ -178,7 +177,7 @@ for key in d_comb:
 
 
 # --- Prepare data and define final features ---------------------------------------------------------------------------
-
+#df.to_feather("df_final.ftr")
 #df = pd.read_feather("df_final.ftr")
 df = df.query("myfold != 'util'").reset_index(drop = True)
 df_train = df.query("fold == 'train'").reset_index(drop = True)  # TODO
@@ -199,12 +198,15 @@ print(datetime.now() - begin)
 
 tune = False
 if tune:
+
+    # Check: >= 2014, remove year
+
     # Sample
     n = 10e6
     df_tune = pd.concat([(df_train.query("myfold == 'train'")
-                          .sample(n = int(n), random_state = 1)
-                         # .sample(frac = 1, replace = True, weights = "weight_all", random_state = 2)
-                          .reset_index(drop = True)),
+                          #.query("year >= 2014")
+                          .sample(n = int(n), random_state = 1)),
+                          #.sample(frac = 1, replace = True, weights = "weight_rmse", random_state = 2)),
                          (df_train.query("myfold == 'test'"))]).reset_index(drop = True)
 
 
@@ -226,10 +228,10 @@ if tune:
     # LightGBM
     start = time.time()
     fit = (GridSearchCV_xlgb(lgbm.LGBMRegressor(n_jobs = n_jobs),
-                             {"n_estimators": [x for x in range(1100, 8100, 1000)], "learning_rate": [0.02],
-                              "num_leaves": [31], "min_child_samples": [10],
-                              "colsample_bytree": [0.1], "subsample": [1], "subsample_freq": [1],
-                              "objective": ["rmse"]},
+                             {"n_estimators": [x for x in range(1100, 8100, 1000)], "learning_rate": [0.02, 0.04],
+                              "num_leaves": [31, 127], "min_child_samples": [10],
+                              "colsample_bytree": [0.1, 0.6], "subsample": [1], "subsample_freq": [1],
+                              "objective": ["rmse", "poisson"]},
                              cv = TrainTestSep(1, fold_var = "myfold").split(df_tune),
                              refit = False,
                              #scoring = d_scoring["REGR"],
@@ -251,9 +253,9 @@ if tune:
 # --- Fit and Score ----------------------------------------------------------------------------------------------------
 
 # Sample with weight
-df_train = (df_train.sample(frac = 1, replace = True, weights = "weight_all", random_state = 2)  # TODO
-            #.query("year >= 2014")
-            .reset_index(drop = True))
+# df_train = (df_train.sample(frac = 1, replace = True, weights = "weight_all", random_state = 2)  # TODO
+#             #.query("year >= 2014")
+#             .reset_index(drop = True))
 
 # Fit
 lgb_param = dict(n_estimators = 8000, learning_rate = 0.02,  # TODO
