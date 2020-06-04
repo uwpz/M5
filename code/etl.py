@@ -1,4 +1,5 @@
 
+# Important columns
 # ######################################################################################################################
 #  Initialize: Libraries, functions, parameters
 # ######################################################################################################################
@@ -13,7 +14,7 @@ import gc
 
 # Specific parameters
 n_sample = None
-n_jobs = 16
+n_jobs = 4
 ids = ["id"]
 plt.ioff(); matplotlib.use('Agg')
 # plt.ion(); matplotlib.use('TkAgg')
@@ -38,6 +39,7 @@ df_sales = pd.melt(df_sales_orig, id_vars = df_sales_orig.columns.values[:6],
 holidays = ["ValentinesDay","StPatricksDay","Easter","Mother's day","Father's day","IndependenceDay",
             "Halloween","Thanksgiving","Christmas", "NewYear"]
 df_calendar = (pd.read_csv(dataloc + "calendar.csv", parse_dates=["date"])
+               .assign(dummy = 1)
                .assign(event_name = lambda x: np.where(x["event_name_2"].isin(["Easter", "Cinco De Mayo"]),
                                                        x["event_name_2"], x["event_name_1"]))
                .assign(event_type = lambda x: np.where(x["event_name_2"].isin(["Easter", "Cinco De Mayo"]),
@@ -45,16 +47,23 @@ df_calendar = (pd.read_csv(dataloc + "calendar.csv", parse_dates=["date"])
                .assign(event = lambda x: x["event_name"].notna().astype("int"))
                .assign(next_event = lambda x: x["event_name"].fillna(method = "bfill"))
                .assign(prev_event = lambda x: x["event_name"].fillna(method = "ffill"))
-               .assign(days_before_event = lambda x: x.groupby("next_event").cumcount() + 1)
-               .assign(days_after_event = lambda x: x.groupby("prev_event").cumcount() + 1)
+               .assign(prev_event = lambda x: x["prev_event"].fillna("Unknown"))
+               .assign(days_before_event = lambda x: (x.groupby(["year", "next_event"])["dummy"]
+                                                      .transform(lambda y: y.sum() - y.cumsum())))
+               .assign(days_after_event = lambda x: (x.groupby(["year", "prev_event"])["dummy"]
+                                                     .transform(lambda y: y.cumsum() - 1)))
                .assign(holiday_name = lambda x: np.where(x["event_name_1"].isin(holidays), x["event_name"], np.nan))
                .assign(holiday_name = lambda x: np.where(x["event_name_2"].isin(holidays),
                                                          x["event_name_2"], x["holiday_name"]))
                .assign(holiday = lambda x: x["holiday_name"].notna().astype("int"))
                .assign(next_holiday = lambda x: x["holiday_name"].fillna(method = "bfill"))
                .assign(prev_holiday = lambda x: x["holiday_name"].fillna(method = "ffill"))
-               .assign(days_before_holiday = lambda x: x.groupby("next_holiday").cumcount() + 1)
-               .assign(days_after_holiday = lambda x: x.groupby("prev_holiday").cumcount() + 1)
+               .assign(prev_holiday = lambda x: x["prev_holiday"].fillna("Unknown"))
+               .assign(days_before_holiday = lambda x: (x.groupby(["year", "next_holiday"])["dummy"]
+                                                        .transform(lambda y: y.sum() - y.cumsum())))
+               .assign(days_after_holiday = lambda x: (x.groupby(["year", "prev_holiday"])["dummy"]
+                                                       .transform(lambda y: y.cumsum() - 1)))
+               .drop(columns = "dummy")
                )
 df_prices = (pd.read_csv(dataloc + "sell_prices.csv")
              .assign(sell_price_avg = lambda x: (x.reset_index(drop = False)
@@ -72,13 +81,17 @@ df = (df_sales
              how = "left", on = "d")
       .merge(df_prices, how = "left", on = ["store_id", "item_id", "wm_yr_wk"]))
 
-# Important columns
 df["anydemand"] = np.where(df["demand"] > 0, 1, np.where(df["demand"].notna(), 0, np.nan))
 df["sell_price_isna"] = np.where(df["sell_price"].isna(), 1, 0)  # no sales if ==1
 df["sales"] = (df["demand"] * df["sell_price"]).fillna(0)
 df["snap"] = np.where(df["state_id"] == "CA", df["snap_CA"],
                       np.where(df["state_id"] == "TX", df["snap_TX"], df["snap_WI"]))  # compress snap
 df = df.drop(columns = ["snap_CA", "snap_TX", "snap_WI"])
+df["id_copy"] = df["id"].str.rsplit('_',1).str[0]
+df = df.merge((df.query("anydemand == 1").groupby("id")[["date"]].min()
+               .rename(columns = {"date": "min_date"}).reset_index()),
+              how = "left")
+
 
 
 '''
@@ -180,7 +193,8 @@ df["myfold"] = np.where(df["date"] >= "2016-04-25", None, np.where(df["date"] >=
 df.myfold.describe()
 
 # Add sales weight
-df = df.merge(df.query("myfold == 'test'").groupby("id")[["sales"]].sum().rename(columns = {"sales": "weight_sales"})
+df = df.merge((df.query("myfold == 'test'").groupby("id")[["sales"]].sum()
+               .rename(columns = {"sales": "weight_sales"}))
                .reset_index(),
               how = "left")
 
@@ -193,23 +207,60 @@ df = df.merge(df[["id", "date", "demand"]].set_index("date").shift(1, "D").renam
 #       .reset_index("id",drop = True))
 
 # Add rmse weight
-df = df.merge(df.query("fold == 'train'")
-              .groupby("id").apply(lambda x: x["demand"].mean() / rmse(x["demand"], x["lagdemand"]))
-              #.groupby("id").apply(lambda x: 1 / rmse(x["demand"], x["lag_demand"]))
+df = df.merge(df.query("fold == 'train' and date >= min_date")  # & date > min_date
+              #.groupby("id").apply(lambda x: x["demand"].mean() / rmse(x["demand"], x["lagdemand"]))
+              .groupby("id").apply(lambda x: 1 / rmse(x["demand"], x["lagdemand"]))
               .reset_index(drop = False)
               .rename(columns = {0: "weight_rmse"}),
               how = "left", on = "id")
-df["weight_all"] = df["weight_sales"] * df["weight_rmse"]
+df["weight_all"] = (df["weight_sales"]) * df["weight_rmse"]
 #df[["weight", "weight_rmse", "weight_all"]] = df[["weight", "weight_rmse", "weight_all"]].apply(lambda x: x/x.max())
 
-# Adapt demand due to missing sell_price and xmas outlier
-df.loc[df["sell_price_isna"] == 1, ["demand", "anydemand"]] = np.nan
-df.loc[df["holiday_name"] == "Christmas", ["demand", "anydemand"]] = np.nan
+
+
+# --- Eval metric help dataframes: Must be done before setting some demands to na --------------------------------------
+
+# Aggregation levels
+d_comb = {1: ["dummy"],
+          2: ["state_id"], 3: ["store_id"], 4: ["cat_id"], 5: ["dept_id"],
+          6: ["state_id", "cat_id"], 7: ["state_id", "dept_id"], 8: ["store_id", "cat_id"], 9: ["store_id", "dept_id"],
+          10: ["item_id"], 11: ["item_id", "state_id"], 12: ["item_id", "store_id"]}
+
+# join cols
+#join_cols = ["key", "dummy", "state_id", "store_id", "cat_id", "dept_id", "item_id"]
+
+# Sales
+df_sales_weight = pd.DataFrame()
+denom = 12 * df.query("myfold == 'test'")["sales"].sum()
+for key in d_comb:
+    df_tmp = (df.query("myfold == 'test'").assign(dummy = "dummy").groupby(d_comb[key])[["sales"]].sum()
+              .assign(sales = lambda x: x["sales"]/denom)
+              .assign(key = key)
+              .reset_index())
+    df_sales_weight = pd.concat([df_sales_weight, df_tmp], ignore_index = True)
+
+# rmse_denom
+df_rmse_denom = pd.DataFrame()
+for key in d_comb:
+    df_tmp = (df.query("fold == 'train' and date >= min_date").assign(dummy = "dummy")
+              .groupby(d_comb[key] + ["date"])["demand", "lagdemand"].sum().reset_index("date", drop = True)
+              .groupby(d_comb[key]).apply(lambda x: pd.Series({"rmse_denom": rmse(x["demand"], x["lagdemand"])}))
+              .assign(key = key)
+              .reset_index())
+    df_rmse_denom = pd.concat([df_rmse_denom, df_tmp], ignore_index = True)
+
+# Merge
+df_help = df_rmse_denom.merge(df_sales_weight, how = "left")
 
 
 # ######################################################################################################################
 #  Time series based FE
 # ######################################################################################################################
+
+# Adapt demand due to missing sell_price and xmas outlier
+df.loc[df["sell_price_isna"] == 1, ["demand", "anydemand"]] = np.nan
+df.loc[df["holiday_name"] == "Christmas", ["demand", "anydemand"]] = np.nan
+
 
 # --- Basic --------------------------------------------------------------------------------------------------------
 
@@ -350,6 +401,7 @@ suffix = "" if n_sample is None else "_" + str(n_sample)
 df.to_feather("df" + suffix + ".ftr")
 df_tsfe.to_feather("df_tsfe" + suffix + ".ftr")
 df_tsfe_sameweekday.to_feather("df_tsfe_sameweekday" + suffix + ".ftr")
+df_help.to_feather("df_help" + suffix + ".ftr")
 
 # Serialize
 # with open("etl" + "_n" + str(n_sample) + "_ts.pkl" if n_sample is not None else "etl.pkl", "wb") as file:

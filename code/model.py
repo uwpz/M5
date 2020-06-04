@@ -11,20 +11,24 @@ from initialize import *
 from datetime import datetime
 import gc
 plt.ion(); matplotlib.use('TkAgg')
-
-# Specific parameter
-n_sample = None
-n_jobs = 16
-horizon = 28
-
 begin = datetime.now()
 
+# Specific parameter
+n_sample = 5000
+n_jobs = 16
+horizon = 28
+d_comb = {1: ["dummy"],
+          2: ["state_id"], 3: ["store_id"], 4: ["cat_id"], 5: ["dept_id"],
+          6: ["state_id", "cat_id"], 7: ["state_id", "dept_id"], 8: ["store_id", "cat_id"], 9: ["store_id", "dept_id"],
+          10: ["item_id"], 11: ["item_id", "state_id"], 12: ["item_id", "store_id"]} # Aggregation levels
 
 # Load results from etl
 suffix = "" if n_sample is None else "_" + str(n_sample)
 df = pd.read_feather("df" + suffix + ".ftr")
 df_tsfe = pd.read_feather("df_tsfe" + suffix + ".ftr").set_index("date")
 df_tsfe_sameweekday = pd.read_feather("df_tsfe_sameweekday" + suffix + ".ftr").set_index("date")
+df_help = pd.read_feather("df_help" + suffix + ".ftr")
+
 # with open("etl" + "_" + "n5000" + ".pkl", "rb") as file:
 #     d_pick = pickle.load(file)
 # df, df_tsfe, df_tsfe_sameweekday = d_pick["df"], d_pick["df_tsfe"], d_pick["df_tsfe_sameweekday"]
@@ -50,7 +54,7 @@ df_meta_sub = df_meta.query("status == 'ready'")
 # Train/Test fold: usually split by time
 df.loc[df["year"] == 2011, "myfold"] = "util"
 df.groupby("myfold")["date"].describe()
-df["encode_flag"] = df["myfold"].map({"train": 0, "test": 0, "util": 1})  # Used for encoding
+df["encode_flag"] = df["myfold"].map({"train": 0, "test": 0, "util": 1}).fillna(0)  # Used for encoding
 df["fold_num"] = np.where(df["fold"] == "train", 0, 1)
 df.fold_num.value_counts()
 
@@ -82,16 +86,24 @@ df[cate] = df[cate].fillna("(Missing)")
 df[cate].describe()
 print(df[cate].nunique().sort_values(ascending = False))  # number of levels
 
-# Create encoded features (for tree based models), i.e. numeric representation
-df = TargetEncoding(features = cate, encode_flag_column = "encode_flag", target = "demand",
-                    remove_burned_data = False,
-                    suffix = "").fit_transform(df)
-
 # Univariate Varimp
 print("\n\n varimp_cate: \n", calc_imp(df.sample(n = int(1e5)), cate, target = "demand", target_type = "REGR"))
 
 # Time/fold depedency
 print("\n\n varimp_cate_fold: \n", calc_imp(df.sample(n = int(1e5)), cate, target = "fold_num"))
+
+# Create encoded features (for tree based models), i.e. numeric representation
+tmp = TargetEncoding(features = cate, encode_flag_column = "encode_flag", target = "demand",
+                    remove_burned_data = False,
+                    suffix = "").fit(df)
+df = tmp.transform(df)
+
+# Adapt df_help with encoding
+help_columns = ["cat_id","dept_id","item_id","state_id","store_id"]
+df_help[help_columns] = df_help[help_columns].apply(lambda x: x.map(tmp._d_map[x.name]))
+                                             #       .fillna(np.median(list(tmp._d_map[x.name].values()))))
+
+
 
 
 # ######################################################################################################################
@@ -141,6 +153,7 @@ print(df_meta_sub.query("h_dep == 'Y' and modeltype == 'cate'")["variable"].valu
 ########################################################################################################################
 # Model
 ########################################################################################################################
+'''
 
 # --- Eval metric help dataframes -------------------------------------------------------------------------------------
 
@@ -149,9 +162,6 @@ d_comb = {1: ["dummy"],
           2: ["state_id"], 3: ["store_id"], 4: ["cat_id"], 5: ["dept_id"],
           6: ["state_id", "cat_id"], 7: ["state_id", "dept_id"], 8: ["store_id", "cat_id"], 9: ["store_id", "dept_id"],
           10: ["item_id"], 11: ["item_id", "state_id"], 12: ["item_id", "store_id"]}
-
-# join cols
-#join_cols = ["key", "dummy", "state_id", "store_id", "cat_id", "dept_id", "item_id"]
 
 # Sales
 df_sales = pd.DataFrame()
@@ -162,7 +172,6 @@ for key in d_comb:
               .assign(key = key)
               .reset_index())
     df_sales = pd.concat([df_sales, df_tmp], ignore_index = True)
-#df_sales[join_cols] = df_sales[join_cols].astype("str")
 
 # rmse_denom
 df_rmse_denom = pd.DataFrame()
@@ -173,15 +182,15 @@ for key in d_comb:
               .assign(key = key)
               .reset_index())
     df_rmse_denom = pd.concat([df_rmse_denom, df_tmp], ignore_index = True)
-#df_rmse_denom[join_cols] = df_rmse_denom[join_cols].astype("str")
 
+'''
 
 # --- Prepare data and define final features ---------------------------------------------------------------------------
 #df.to_feather("df_final.ftr")
 #df = pd.read_feather("df_final.ftr")
 df = df.query("myfold != 'util'").reset_index(drop = True)
-df_train = df.query("fold == 'train'").reset_index(drop = True)  # TODO
-df_test = df.query("fold == 'test'").reset_index(drop = True)
+df_train = df.query("myfold == 'train'").reset_index(drop = True)  # TODO
+df_test = df.query("myfold == 'test'").reset_index(drop = True)
 del df  # TODO
 gc.collect()
 
@@ -204,9 +213,10 @@ if tune:
     # Sample
     n = 10e6
     df_tune = pd.concat([(df_train.query("myfold == 'train'")
+                          #.assign(weight_sales = lambda x: x["weight_sales"].pow(0.5))
                           #.query("year >= 2014")
-                          .sample(n = int(n), random_state = 1)),
-                          #.sample(frac = 1, replace = True, weights = "weight_rmse", random_state = 2)),
+                          .sample(n = int(n), random_state = 1)
+                          .sample(frac = 1, replace = True, weights = "weight_sales", random_state = 2)),
                          (df_train.query("myfold == 'test'"))]).reset_index(drop = True)
 
 
@@ -222,16 +232,17 @@ if tune:
                       .assign(key = key)
                       .reset_index())
             df_rmse = pd.concat([df_rmse, df_tmp], ignore_index = True)
-        return (df_rmse.merge(df_rmse_denom, how = "left").merge(df_sales, how = "left")
+        #return (df_rmse.merge(df_rmse_denom, how = "left").merge(df_sales, how = "left")
+        return (df_rmse.merge(df_help, how = "left")
                   .eval("wrmsse = sales * rmse/rmse_denom")["wrmsse"].sum())
 
     # LightGBM
     start = time.time()
     fit = (GridSearchCV_xlgb(lgbm.LGBMRegressor(n_jobs = n_jobs),
-                             {"n_estimators": [x for x in range(1100, 8100, 1000)], "learning_rate": [0.02, 0.04],
-                              "num_leaves": [31, 127], "min_child_samples": [10],
-                              "colsample_bytree": [0.1, 0.6], "subsample": [1], "subsample_freq": [1],
-                              "objective": ["rmse", "poisson"]},
+                             {"n_estimators": [x for x in range(600, 4600, 200)], "learning_rate": [0.01],
+                              "num_leaves": [31], "min_child_samples": [10],
+                              "colsample_bytree": [0.1], "subsample": [1], "subsample_freq": [1],
+                              "objective": ["rmse"]},
                              cv = TrainTestSep(1, fold_var = "myfold").split(df_tune),
                              refit = False,
                              #scoring = d_scoring["REGR"],
@@ -243,11 +254,11 @@ if tune:
     print((time.time()-start)/60)
     pd.DataFrame(fit.cv_results_)
     plot_cvresult(fit.cv_results_, metric = "rmse",
-                  x_var = "n_estimators", color_var = "min_child_samples", style_var = "learning_rate",
-                  column_var = "objective", row_var = "colsample_bytree")
+                  x_var = "n_estimators", color_var = "min_child_samples", style_var = "colsample_bytree",
+                  column_var = "num_leaves", row_var = "learning_rate")
     plot_cvresult(fit.cv_results_, metric = "wrmsse",
-                  x_var = "n_estimators", color_var = "min_child_samples", style_var = "learning_rate",
-                  column_var = "objective", row_var = "colsample_bytree")
+                  x_var = "n_estimators", color_var = "min_child_samples", style_var = "colsample_bytree",
+                  column_var = "num_leaves", row_var = "learning_rate")
 
 
 # --- Fit and Score ----------------------------------------------------------------------------------------------------
@@ -258,7 +269,7 @@ if tune:
 #             .reset_index(drop = True))
 
 # Fit
-lgb_param = dict(n_estimators = 8000, learning_rate = 0.02,  # TODO
+lgb_param = dict(n_estimators = 1000, learning_rate = 0.04,  # TODO
                  num_leaves = 31, min_child_samples = 10,
                  colsample_bytree = 0.1, subsample = 1,
                  objective = "rmse",
@@ -285,9 +296,7 @@ for key in d_comb:
               .assign(key = key)
               .reset_index())
     df_rmse = pd.concat([df_rmse, df_tmp], ignore_index = True)
-#df_rmse[join_cols] = df_rmse[join_cols].astype("str")    
-df_tmp = (df_rmse.merge(df_rmse_denom, how = "left").merge(df_sales, how = "left")
-          .eval("wrmsse = sales * rmse/rmse_denom"))
+df_tmp = df_rmse.merge(df_help, how = "left").eval("wrmsse = sales * rmse/rmse_denom")
 df_tmp.groupby("key")["wrmsse"].sum()
 df_tmp["wrmsse"].sum()
 '''
