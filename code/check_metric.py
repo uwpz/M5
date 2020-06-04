@@ -20,13 +20,13 @@ d_comb = {1: ["dummy"],
 
 
 # Read data
-df_help = pd.read_feather("df_help_10000.ftr")
+df_help = pd.read_feather("df_help.ftr")
 df_ids = (pd.read_csv(dataloc + "sales_train_validation.csv", usecols = range(0, 6))
           .assign(id = lambda x: x["id"].str.rsplit("_", 1).str[0]))
 #df_calendar = (pd.read_csv(dataloc + "calendar.csv", parse_dates=["date"]))
 #df_submit = pd.read_csv(dataloc + "submit_thirdtry.csv")
 #df_submit.columns = ["id"] + ["d_" + str(x) for x in range(1914, 1942)]
-df_submit = (pd.melt(pd.read_csv(dataloc + "submit_thirdtry.csv").iloc[0:30490]
+df_submit = (pd.melt(pd.read_csv(dataloc + "submit_firsttry.csv").iloc[0:30490]
                      .rename(columns = {"F" + str(x): "d_" + str(x + 1913) for x in range(1, 29)}),
                      id_vars = "id", var_name = "date", value_name = "yhat")
              .assign(id = lambda x: x["id"].str.rsplit("_", 1).str[0]))
