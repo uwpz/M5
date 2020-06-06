@@ -14,7 +14,7 @@ plt.ion(); matplotlib.use('TkAgg')
 begin = datetime.now()
 
 # Specific parameter
-n_sample = 5000
+n_sample = None
 n_jobs = 16
 horizon = 28
 d_comb = {1: ["dummy"],
@@ -189,8 +189,8 @@ for key in d_comb:
 #df.to_feather("df_final.ftr")
 #df = pd.read_feather("df_final.ftr")
 df = df.query("myfold != 'util'").reset_index(drop = True)
-df_train = df.query("myfold == 'train'").reset_index(drop = True)  # TODO
-df_test = df.query("myfold == 'test'").reset_index(drop = True)
+df_train = df.query("fold == 'train'").reset_index(drop = True)  # TODO  .query("year >= 2014")
+df_test = df.query("fold == 'test'").reset_index(drop = True)
 del df  # TODO
 gc.collect()
 
@@ -199,6 +199,8 @@ cate = df_meta_sub.query("modeltype == 'cate'")["variable"].values
 all_features = np.concatenate([metr, cate])
 setdiff(all_features, df_train.columns.values.tolist())
 setdiff(df_train.columns.values.tolist(), all_features)
+all_features = setdiff(all_features, "id_copy") #TODO
+cate = setdiff(cate, "id_copy") #TODO
 
 print(datetime.now() - begin)
 
@@ -211,9 +213,9 @@ if tune:
     # Check: >= 2014, remove year
 
     # Sample
-    n = 10e6
+    n = 20e6
     df_tune = pd.concat([(df_train.query("myfold == 'train'")
-                          #.assign(weight_sales = lambda x: x["weight_sales"].pow(0.5))
+                          .assign(weight_sales = lambda x: x["weight_sales"].pow(0.5))
                           #.query("year >= 2014")
                           .sample(n = int(n), random_state = 1)
                           .sample(frac = 1, replace = True, weights = "weight_sales", random_state = 2)),
@@ -239,7 +241,7 @@ if tune:
     # LightGBM
     start = time.time()
     fit = (GridSearchCV_xlgb(lgbm.LGBMRegressor(n_jobs = n_jobs),
-                             {"n_estimators": [x for x in range(600, 4600, 200)], "learning_rate": [0.01],
+                             {"n_estimators": [x for x in range(500, 4500, 250)], "learning_rate": [0.01],
                               "num_leaves": [31], "min_child_samples": [10],
                               "colsample_bytree": [0.1], "subsample": [1], "subsample_freq": [1],
                               "objective": ["rmse"]},
@@ -254,22 +256,25 @@ if tune:
     print((time.time()-start)/60)
     pd.DataFrame(fit.cv_results_)
     plot_cvresult(fit.cv_results_, metric = "rmse",
-                  x_var = "n_estimators", color_var = "min_child_samples", style_var = "colsample_bytree",
+                  x_var = "n_estimators", color_var = "objective", style_var = "colsample_bytree",
                   column_var = "num_leaves", row_var = "learning_rate")
     plot_cvresult(fit.cv_results_, metric = "wrmsse",
-                  x_var = "n_estimators", color_var = "min_child_samples", style_var = "colsample_bytree",
+                  x_var = "n_estimators", color_var = "objective", style_var = "colsample_bytree",
                   column_var = "num_leaves", row_var = "learning_rate")
 
 
 # --- Fit and Score ----------------------------------------------------------------------------------------------------
 
 # Sample with weight
-# df_train = (df_train.sample(frac = 1, replace = True, weights = "weight_all", random_state = 2)  # TODO
-#             #.query("year >= 2014")
-#             .reset_index(drop = True))
+df_train = (df_train
+            .assign(weight_sales = lambda x: x["weight_sales"].pow(0.5))
+            .sample(frac = 1, replace = True, weights = "weight_sales", random_state = 2)
+            .reset_index(drop = True))
+
+#df_train = df_train.sample(n=int(30e6)) TODO
 
 # Fit
-lgb_param = dict(n_estimators = 1000, learning_rate = 0.04,  # TODO
+lgb_param = dict(n_estimators = 2800, learning_rate = 0.01,  # TODO
                  num_leaves = 31, min_child_samples = 10,
                  colsample_bytree = 0.1, subsample = 1,
                  objective = "rmse",
