@@ -13,7 +13,7 @@ from datetime import datetime
 import gc
 
 # Specific parameters
-n_sample = None
+n_sample = 5000
 n_jobs = 4
 ids = ["id"]
 plt.ioff(); matplotlib.use('Agg')
@@ -92,8 +92,6 @@ df = df.merge((df.query("anydemand == 1").groupby("id")[["date"]].min()
                .rename(columns = {"date": "min_date"}).reset_index()),
               how = "left")
 
-
-
 '''
 # --- Some checks -----------------------------------------------------------------------------------------------------
 
@@ -169,21 +167,11 @@ plot_acf(ts, lags = 40)
  .groupby(["snap","dayofweek"])["demand"].mean().unstack("snap"))
 '''
 
-# --- Transform -----------------------------------------------------------------------------------------------------
+
+# --- Transform 1 -----------------------------------------------------------------------------------------------------
 
 del df_sales_orig, df_sales, df_calendar, df_prices
 gc.collect()
-
-# Winsorize (and add median and iqr per id: not used so far)
-# df = (df.merge((df[["id","demand"]].loc[df["demand"] > 0].groupby("id")["demand"]
-#                 .apply(lambda x: x.quantile(q = [0.25, 0.75, 0.5, 0.95]))
-#                 .unstack()
-#                 .assign(demand_iqr = lambda x: x[0.75] - x[0.25]).drop(columns = [0.75, 0.25])
-#                 .reset_index()
-#                 .rename(columns = {0.5: "demand_median", 0.95: "demand_upperlimit"})),
-#                how = "left")
-#       .assign(demand = lambda x: np.where(x["demand"].isna(), np.nan, x[["demand", "demand_upperlimit"]].min(axis = 1)))
-#       .drop(columns = ["demand_upperlimit"]))
 
 # Set fold
 df["fold"] = np.where(df["date"] >= "2016-04-25", "test", "train")
@@ -198,15 +186,11 @@ df = df.merge((df.query("myfold == 'test'").groupby("id")[["sales"]].sum()
                .reset_index(),
               how = "left")
 
-# Add lagdemand
+# Add rmse weight
 df = df.merge(df[["id", "date", "demand"]].set_index("date").shift(1, "D").rename(columns = {"demand": "lagdemand"})
               .reset_index(),
-              how = "left")
-# df = (df.groupby("id").apply(lambda x: x.set_index("date")
-#                              .assign(lagdemand = lambda y: y["demand"].shift(1, "D")).reset_index())
-#       .reset_index("id",drop = True))
+              how = "left") # Add lagdemand
 
-# Add rmse weight
 df = df.merge(df.query("fold == 'train' and date >= min_date")  # & date > min_date
               #.groupby("id").apply(lambda x: x["demand"].mean() / rmse(x["demand"], x["lagdemand"]))
               .groupby("id").apply(lambda x: 1 / rmse(x["demand"], x["lagdemand"]))
@@ -217,7 +201,6 @@ df["weight_all"] = (df["weight_sales"]) * df["weight_rmse"]
 #df[["weight", "weight_rmse", "weight_all"]] = df[["weight", "weight_rmse", "weight_all"]].apply(lambda x: x/x.max())
 
 
-
 # --- Eval metric help dataframes: Must be done before setting some demands to na --------------------------------------
 
 # Aggregation levels
@@ -225,9 +208,6 @@ d_comb = {1: ["dummy"],
           2: ["state_id"], 3: ["store_id"], 4: ["cat_id"], 5: ["dept_id"],
           6: ["state_id", "cat_id"], 7: ["state_id", "dept_id"], 8: ["store_id", "cat_id"], 9: ["store_id", "dept_id"],
           10: ["item_id"], 11: ["item_id", "state_id"], 12: ["item_id", "store_id"]}
-
-# join cols
-#join_cols = ["key", "dummy", "state_id", "store_id", "cat_id", "dept_id", "item_id"]
 
 # Sales
 df_sales_weight = pd.DataFrame()
@@ -253,14 +233,28 @@ for key in d_comb:
 df_help = df_rmse_denom.merge(df_sales_weight, how = "left")
 
 
-# ######################################################################################################################
-#  Time series based FE
-# ######################################################################################################################
+# --- Transform 2 ------------------------------------------------------------------------------------------------
 
 # Adapt demand due to missing sell_price and xmas outlier
 df.loc[df["sell_price_isna"] == 1, ["demand", "anydemand"]] = np.nan
 df.loc[df["holiday_name"] == "Christmas", ["demand", "anydemand"]] = np.nan
 
+# Add demand statistics for scaling
+df = df.merge(df.groupby("id")["demand"]
+              .agg([("demand_mean", "mean"), ("demand_sd", "std"),
+                    ("demand_median", "median"), ("demand_upperlimit", lambda x: x.quantile(0.99)),
+                    ("demand_iqr", lambda x: x.quantile(0.75) - x.quantile(0.25))])
+              .reset_index(),
+              how = "left")
+      # .assign(demand = lambda x: np.where(x["demand"].isna(), np.nan,
+      #                                     np.where(x["myfold"] == "train",
+      #                                              x[["demand", "demand_upperlimit"]].min(axis = 1),
+      #                                              x["demand"])))
+
+
+# ######################################################################################################################
+#  Time series based FE
+# ######################################################################################################################
 
 # --- Basic --------------------------------------------------------------------------------------------------------
 

@@ -1337,6 +1337,7 @@ class TargetEncoding(BaseEstimator, TransformerMixin):
             df["tmp"] = df[self.target]
         self._d_map = {x: (df.loc[df[self.encode_flag_column] == 1, :].reset_index(drop = True)
                            .groupby(x, as_index = False)["tmp"].agg("mean")
+                           .merge(pd.DataFrame({x: df[x].unique()}), how = "right")
                            .sort_values("tmp", ascending = False)
                            .assign(rank = lambda x: np.arange(len(x)) + 1)
                            .set_index(x)["rank"]

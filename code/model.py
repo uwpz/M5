@@ -14,7 +14,7 @@ plt.ion(); matplotlib.use('TkAgg')
 begin = datetime.now()
 
 # Specific parameter
-n_sample = None
+n_sample = 5000
 n_jobs = 16
 horizon = 28
 d_comb = {1: ["dummy"],
@@ -93,15 +93,14 @@ print("\n\n varimp_cate: \n", calc_imp(df.sample(n = int(1e5)), cate, target = "
 print("\n\n varimp_cate_fold: \n", calc_imp(df.sample(n = int(1e5)), cate, target = "fold_num"))
 
 # Create encoded features (for tree based models), i.e. numeric representation
-tmp = TargetEncoding(features = cate, encode_flag_column = "encode_flag", target = "demand",
+enc = TargetEncoding(features = cate, encode_flag_column = "encode_flag", target = "demand",
                     remove_burned_data = False,
                     suffix = "").fit(df)
-df = tmp.transform(df)
+df = enc.transform(df)
 
 # Adapt df_help with encoding
 help_columns = ["cat_id","dept_id","item_id","state_id","store_id"]
-df_help[help_columns] = df_help[help_columns].apply(lambda x: x.map(tmp._d_map[x.name]))
-                                             #       .fillna(np.median(list(tmp._d_map[x.name].values()))))
+df_help[help_columns] = df_help[help_columns].apply(lambda x: x.map(enc._d_map[x.name]))
 
 
 
@@ -188,20 +187,28 @@ for key in d_comb:
 # --- Prepare data and define final features ---------------------------------------------------------------------------
 #df.to_feather("df_final.ftr")
 #df = pd.read_feather("df_final.ftr")
-df = df.query("myfold != 'util'").reset_index(drop = True)
-df_train = df.query("fold == 'train'").reset_index(drop = True)  # TODO  .query("year >= 2014")
-df_test = df.query("fold == 'test'").reset_index(drop = True)
-del df  # TODO
+#df = df.query("myfold != 'util'").reset_index(drop = True)
+df["demand_normed"] = (df["demand"] - df["demand_median"]) / np.where(df["demand_iqr"] == 0, 1, df["demand_iqr"]) #TODO
+#df["demand_normed"] = (df["demand"] - df["demand_mean"]) / np.where(df["demand_sd"] == 0, 1, df["demand_sd"]) #TODO
+#df["demand_normed"] = (df["demand"] - df["demand_median"])  #TODO
+#df["demand_normed"] = np.where(df["demand_median"] == 0, df["demand"], df["demand"]/df["demand_median"])  #TODO
+
+df_train = df.query("myfold == 'train'").reset_index(drop = True)  # TODO  .query("year >= 2014")
+df_test = df.query("myfold == 'test'").reset_index(drop = True)
+#del df  # TODO
 gc.collect()
 
 metr = df_meta_sub.query("modeltype == 'metr'")["variable"].values
+#metr = np.append(metr, ["demand_median","demand_iqr"])
 cate = df_meta_sub.query("modeltype == 'cate'")["variable"].values
 all_features = np.concatenate([metr, cate])
 setdiff(all_features, df_train.columns.values.tolist())
 setdiff(df_train.columns.values.tolist(), all_features)
-all_features = setdiff(all_features, "id_copy") #TODO
-cate = setdiff(cate, "id_copy") #TODO
+#all_features = setdiff(all_features, "id_copy") #TODO
+#cate = setdiff(cate, ["id_copy","item_id"]) #TODO
+cate = np.array(["dayofweek","id_copy","item_id"])
 
+#cate = np.array(["dayofweek"])
 print(datetime.now() - begin)
 
 
@@ -213,7 +220,7 @@ if tune:
     # Check: >= 2014, remove year
 
     # Sample
-    n = 20e6
+    n = 5e6
     df_tune = pd.concat([(df_train.query("myfold == 'train'")
                           .assign(weight_sales = lambda x: x["weight_sales"].pow(0.5))
                           #.query("year >= 2014")
@@ -228,6 +235,10 @@ if tune:
         df_rmse = pd.DataFrame()
         for key in d_comb:
             df_tmp = (df_holdout.assign(yhat = y_pred)
+                      .assign(yhat = lambda x: (x["yhat"] * np.where(x["demand_iqr"] == 0, 1, x["demand_iqr"])) + x["demand_median"]) #TODO
+                      #.assign(yhat = lambda x: (x["yhat"] * np.where(x["demand_sd"] == 0, 1, x["demand_sd"])) + x["demand_mean"]) #TODO
+                      #.assign(yhat = lambda x: x["yhat"] + x["demand_median"]) #TODO
+                      #.assign(yhat = lambda x: np.where(x["demand_median"] == 0, x["yhat"], x["yhat"] * x["demand_median"])) #TODO
                       .assign(dummy = "dummy")
                       .groupby(d_comb[key] + ["date"])["demand", "yhat"].sum().reset_index("date", drop = True)
                       .groupby(d_comb[key]).apply(lambda x: pd.Series({"rmse": rmse(x["demand"], x["yhat"])}))
@@ -241,9 +252,9 @@ if tune:
     # LightGBM
     start = time.time()
     fit = (GridSearchCV_xlgb(lgbm.LGBMRegressor(n_jobs = n_jobs),
-                             {"n_estimators": [x for x in range(500, 4500, 250)], "learning_rate": [0.01],
-                              "num_leaves": [31], "min_child_samples": [10],
-                              "colsample_bytree": [0.1], "subsample": [1], "subsample_freq": [1],
+                             {"n_estimators": [x for x in range(500, 16500, 1000)], "learning_rate": [0.02],
+                              "num_leaves": [127], "min_child_samples": [10],
+                              "colsample_bytree": [0.6], "subsample": [1], "subsample_freq": [1],
                               "objective": ["rmse"]},
                              cv = TrainTestSep(1, fold_var = "myfold").split(df_tune),
                              refit = False,
@@ -252,14 +263,14 @@ if tune:
                                         "wrmsse": make_scorer(wrmsse, greater_is_better = False)},
                              return_train_score = False,
                              n_jobs = 1)
-           .fit(df_tune[all_features], df_tune["demand"], categorical_feature = cate.tolist()))
+           .fit(df_tune[all_features], df_tune["demand_normed"], categorical_feature = cate.tolist())) #TODO
     print((time.time()-start)/60)
     pd.DataFrame(fit.cv_results_)
     plot_cvresult(fit.cv_results_, metric = "rmse",
-                  x_var = "n_estimators", color_var = "objective", style_var = "colsample_bytree",
+                  x_var = "n_estimators", color_var = "colsample_bytree", style_var = "colsample_bytree",
                   column_var = "num_leaves", row_var = "learning_rate")
     plot_cvresult(fit.cv_results_, metric = "wrmsse",
-                  x_var = "n_estimators", color_var = "objective", style_var = "colsample_bytree",
+                  x_var = "n_estimators", color_var = "colsample_bytree", style_var = "colsample_bytree",
                   column_var = "num_leaves", row_var = "learning_rate")
 
 
@@ -271,23 +282,25 @@ df_train = (df_train
             .sample(frac = 1, replace = True, weights = "weight_sales", random_state = 2)
             .reset_index(drop = True))
 
-#df_train = df_train.sample(n=int(30e6)) TODO
-
 # Fit
-lgb_param = dict(n_estimators = 2800, learning_rate = 0.01,  # TODO
-                 num_leaves = 31, min_child_samples = 10,
-                 colsample_bytree = 0.1, subsample = 1,
+lgb_param = dict(n_estimators = 8000, learning_rate = 0.01,  # TODO
+                 num_leaves = 127, min_child_samples = 10,
+                 colsample_bytree = 0.6, subsample = 1,
                  objective = "rmse",
                  n_jobs = n_jobs)
 fit = (lgbm.LGBMRegressor(**lgb_param)
        .fit(X = df_train[all_features],
-            y = df_train["demand"],
-            #sample_weight = df_train["weight_all"].values/min(df_train["weight_all"]),
+            y = df_train["demand_normed"],  #TODO
+            #sample_weight = df_train["weight_rmse"].values,#/min(df_train["weight_rmse"]),
             categorical_feature = cate.tolist()))
 
 # Score
-yhat = fit.predict(df_test[all_features])
-df_test["yhat"] = np.where((df_test["sell_price_isna"] == 1) | (yhat < 0), 0, yhat)
+#yhat = fit.predict(df_test[all_features])
+#df_test["yhat"] = np.where((df_test["sell_price_isna"] == 1) | (yhat < 0), 0.0000001,yhat)
+df_test["yhat"] = fit.predict(df_test[all_features])
+df_test["yhat"] = (df_test["yhat"] * np.where(df_test["demand_iqr"] == 0, 1, df_test["demand_iqr"])
+                   + df_test["demand_median"])  #TODO
+df_test["yhat"] = np.where((df_test["sell_price_isna"] == 1) | (df_test["yhat"] < 0), 0.0001, df_test["yhat"] ) #TODO
 
 '''
 # Rmse
