@@ -13,8 +13,8 @@ from datetime import datetime
 import gc
 
 # Specific parameters
-n_sample = 5000
-n_jobs = 4
+n_sample = None
+n_jobs = 16
 ids = ["id"]
 plt.ioff(); matplotlib.use('Agg')
 # plt.ion(); matplotlib.use('TkAgg')
@@ -172,6 +172,7 @@ plot_acf(ts, lags = 40)
 
 del df_sales_orig, df_sales, df_calendar, df_prices
 gc.collect()
+df = reduce_mem_usage(df)
 
 # Set fold
 df["fold"] = np.where(df["date"] >= "2016-04-25", "test", "train")
@@ -202,6 +203,8 @@ df["weight_all"] = (df["weight_sales"]) * df["weight_rmse"]
 
 
 # --- Eval metric help dataframes: Must be done before setting some demands to na --------------------------------------
+
+df = reduce_mem_usage(df)
 
 # Aggregation levels
 d_comb = {1: ["dummy"],
@@ -265,6 +268,7 @@ df["dayofyear"] = df["date"].dt.dayofyear
 df["week"] = df["date"].dt.week
 df["month"] = df["date"].dt.month
 df["year"] = df["date"].dt.year
+df = reduce_mem_usage(df)
 
 
 # --- Advanced ----------------------------------------------------------------------------------------------------
@@ -379,6 +383,9 @@ df_tsfe = pd.concat([x[0] for x in l_return]).reset_index(drop = True)
 df_tsfe_sameweekday = pd.concat([x[1] for x in l_return]).reset_index(drop = True)
 del l_return
 gc.collect()
+df = reduce_mem_usage(df, float_convert = True)
+df_tsfe = reduce_mem_usage(df_tsfe, float_convert = True)
+df_tsfe_sameweekday = reduce_mem_usage(df_tsfe_sameweekday, float_convert = True)
 
 
 ########################################################################################################################
