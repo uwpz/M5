@@ -252,9 +252,9 @@ if tune:
     # LightGBM
     start = time.time()
     fit = (GridSearchCV_xlgb(lgbm.LGBMRegressor(n_jobs = n_jobs),
-                             {"n_estimators": [x for x in range(500, 14500, 1000)], "learning_rate": [0.01, 0.02],
-                              "num_leaves": [63, 127], "min_child_samples": [10],
-                              "colsample_bytree": [0.6, 0.9], "subsample": [1], "subsample_freq": [1],
+                             {"n_estimators": [x for x in range(500, 10500, 1000)], "learning_rate": [0.02],
+                              "num_leaves": [63], "min_child_samples": [10],
+                              "colsample_bytree": [0.6], "subsample": [1], "subsample_freq": [1],
                               "objective": ["rmse"]},
                              cv = TrainTestSep(1, fold_var = "myfold").split(df_tune),
                              refit = False,
@@ -283,8 +283,8 @@ df_train = (df_train
             .reset_index(drop = True))
 
 # Fit
-lgb_param = dict(n_estimators = 8000, learning_rate = 0.01,  # TODO
-                 num_leaves = 127, min_child_samples = 10,
+lgb_param = dict(n_estimators = 10000, learning_rate = 0.02,  # TODO
+                 num_leaves = 63, min_child_samples = 10,
                  colsample_bytree = 0.6, subsample = 1,
                  objective = "rmse",
                  n_jobs = n_jobs)
