@@ -14,7 +14,7 @@ plt.ion(); matplotlib.use('TkAgg')
 begin = datetime.now()
 
 # Specific parameter
-n_sample = None
+n_sample = 5000
 n_jobs = 16
 horizon = 28
 d_comb = {1: ["dummy"],
@@ -34,17 +34,10 @@ df_help = pd.read_feather("df_help" + suffix + ".ftr")
 # df, df_tsfe, df_tsfe_sameweekday = d_pick["df"], d_pick["df_tsfe"], d_pick["df_tsfe_sameweekday"]
 
 
-# --- Check metadata -------------------------------------------------------------------------------------------
+# --- Read metadata -------------------------------------------------------------------------------------------
 
 df_meta = pd.read_excel("DATAMODEL_m5.xlsx")
-
-# Check
-print(setdiff(df.columns.values, df_meta["variable"].values))
-print(setdiff(df_meta.loc[(df_meta["status"] == "ready") & (df_meta["h_dep"] == 'N'), "variable"].values,
-              df.columns.values))
-
-# Filter on "ready"
-df_meta_sub = df_meta.query("status == 'ready'")
+df_meta_sub = df_meta.query("status == 'ready'") # Filter on "ready"
 
 
 # ######################################################################################################################
@@ -115,22 +108,22 @@ df = (df.set_index(["date", "id"])
       .join(df_tsfe.shift(horizon, "D").set_index("id", append = True), how = "left")
       .join(df_tsfe_sameweekday.shift(((horizon - 1) // 7 + 1) * 7, "D").set_index("id", append = True),
             how = "left")
-      .assign(demand_avg2week_sameweekday_samesnap = lambda x: np.where(x["snap"] == 0,
-                                                                        x["demand_avg2week_sameweekday_samesnap0"],
-                                                                        x["demand_avg2week_sameweekday_samesnap1"]))
-      .assign(demand_avg4week_sameweekday_samesnap = lambda x: np.where(x["snap"] == 0,
-                                                                        x["demand_avg4week_sameweekday_samesnap0"],
-                                                                        x["demand_avg4week_sameweekday_samesnap1"]))
-      .assign(demand_avg12week_sameweekday_samesnap = lambda x: np.where(x["snap"] == 0,
-                                                                         x["demand_avg12week_sameweekday_samesnap0"],
-                                                                         x["demand_avg12week_sameweekday_samesnap1"]))
-      .assign(demand_avg48week_sameweekday_samesnap = lambda x: np.where(x["snap"] == 0,
-                                                                         x["demand_avg48week_sameweekday_samesnap0"],
-                                                                         x["demand_avg48week_sameweekday_samesnap1"]))
-      .drop(columns = ['demand_avg2week_sameweekday_samesnap0', 'demand_avg2week_sameweekday_samesnap1',
-                       'demand_avg4week_sameweekday_samesnap0', 'demand_avg4week_sameweekday_samesnap1',
-                       'demand_avg12week_sameweekday_samesnap0', 'demand_avg12week_sameweekday_samesnap1',
-                       'demand_avg48week_sameweekday_samesnap0', 'demand_avg48week_sameweekday_samesnap1'])
+      .assign(demand_mean2week_sameweekday_samesnap = lambda x: np.where(x["snap"] == 0,
+                                                                        x["demand_mean2week_sameweekday_samesnap0"],
+                                                                        x["demand_mean2week_sameweekday_samesnap1"]))
+      .assign(demand_mean4week_sameweekday_samesnap = lambda x: np.where(x["snap"] == 0,
+                                                                        x["demand_mean4week_sameweekday_samesnap0"],
+                                                                        x["demand_mean4week_sameweekday_samesnap1"]))
+      .assign(demand_mean12week_sameweekday_samesnap = lambda x: np.where(x["snap"] == 0,
+                                                                         x["demand_mean12week_sameweekday_samesnap0"],
+                                                                         x["demand_mean12week_sameweekday_samesnap1"]))
+      .assign(demand_mean48week_sameweekday_samesnap = lambda x: np.where(x["snap"] == 0,
+                                                                         x["demand_mean48week_sameweekday_samesnap0"],
+                                                                         x["demand_mean48week_sameweekday_samesnap1"]))
+      .drop(columns = ['demand_mean2week_sameweekday_samesnap0', 'demand_mean2week_sameweekday_samesnap1',
+                       'demand_mean4week_sameweekday_samesnap0', 'demand_mean4week_sameweekday_samesnap1',
+                       'demand_mean12week_sameweekday_samesnap0', 'demand_mean12week_sameweekday_samesnap1',
+                       'demand_mean48week_sameweekday_samesnap0', 'demand_mean48week_sameweekday_samesnap1'])
       .reset_index())
 print(datetime.now() - tmp)
 del df_tsfe
@@ -147,6 +140,10 @@ print("\n\n varimp_metr_fold: \n", calc_imp(df.sample(n = int(1e5)), metr, targe
 
 # No new categorical variables
 print(df_meta_sub.query("h_dep == 'Y' and modeltype == 'cate'")["variable"].values)
+
+# Check
+print(setdiff(df.columns.values, df_meta_sub["variable"].values))
+print(setdiff(df_meta_sub["variable"].values, df.columns.values))
 
 
 ########################################################################################################################
@@ -188,7 +185,7 @@ for key in d_comb:
 #df.to_feather("df_final.ftr")
 #df = pd.read_feather("df_final.ftr")
 #df = df.query("myfold != 'util'").reset_index(drop = True)
-df["demand_normed"] = (df["demand"] - df["demand_median"]) / np.where(df["demand_iqr"] == 0, 1, df["demand_iqr"]) #TODO
+#df["demand_normed"] = (df["demand"] - df["demand_median"]) / np.where(df["demand_iqr"] == 0, 1, df["demand_iqr"]) #TODO
 #df["demand_normed"] = (df["demand"] - df["demand_mean"]) / np.where(df["demand_sd"] == 0, 1, df["demand_sd"]) #TODO
 #df["demand_normed"] = (df["demand"] - df["demand_median"])  #TODO
 #df["demand_normed"] = np.where(df["demand_median"] == 0, df["demand"], df["demand"]/df["demand_median"])  #TODO
@@ -199,6 +196,7 @@ del df  # TODO
 gc.collect()
 
 metr = df_meta_sub.query("modeltype == 'metr'")["variable"].values
+#metr = metr[~ (pd.Series(metr).str.contains("max") | pd.Series(metr).str.contains("min"))]
 #metr = np.append(metr, ["demand_median","demand_iqr"])
 cate = df_meta_sub.query("modeltype == 'cate'")["variable"].values
 all_features = np.concatenate([metr, cate])
@@ -220,13 +218,14 @@ if tune:
     # Check: >= 2014, remove year
 
     # Sample
-    #n = 30e6
+    n = 5e6
     df_tune = pd.concat([(df_train.query("myfold == 'train'")
                           .assign(weight_sales = lambda x: x["weight_sales"].pow(0.5))
                           #.query("year >= 2014")
                           #.sample(n = int(n), random_state = 1)
                           .sample(frac = 1, replace = True, weights = "weight_sales", random_state = 2)),
                          (df_train.query("myfold == 'test'"))]).reset_index(drop = True)
+    #df_tune = df_tune.query("anydemand == 1").reset_index()
 
 
     def wrmsse(y_true, y_pred):
@@ -245,16 +244,15 @@ if tune:
                       .assign(key = key)
                       .reset_index())
             df_rmse = pd.concat([df_rmse, df_tmp], ignore_index = True)
-        #return (df_rmse.merge(df_rmse_denom, how = "left").merge(df_sales, how = "left")
         return (df_rmse.merge(df_help, how = "left")
                   .eval("wrmsse = sales * rmse/rmse_denom")["wrmsse"].sum())
 
     # LightGBM
     start = time.time()
     fit = (GridSearchCV_xlgb(lgbm.LGBMRegressor(n_jobs = n_jobs),
-                             {"n_estimators": [x for x in range(500, 14500, 1000)], "learning_rate": [0.01, 0.02],
-                              "num_leaves": [63, 127], "min_child_samples": [10],
-                              "colsample_bytree": [0.6, 0.9], "subsample": [1], "subsample_freq": [1],
+                             {"n_estimators": [x for x in range(500, 10500, 1000)], "learning_rate": [0.02],
+                              "num_leaves": [63], "min_child_samples": [10],
+                              "colsample_bytree": [0.6], "subsample": [1], "subsample_freq": [1],
                               "objective": ["rmse"]},
                              cv = TrainTestSep(1, fold_var = "myfold").split(df_tune),
                              refit = False,
@@ -263,15 +261,15 @@ if tune:
                                         "wrmsse": make_scorer(wrmsse, greater_is_better = False)},
                              return_train_score = False,
                              n_jobs = 1)
-           .fit(df_tune[all_features], df_tune["demand"], categorical_feature = cate.tolist())) #TODO
+           .fit(df_tune[all_features], df_tune["demand"], categorical_feature = cate.tolist()))
     print((time.time()-start)/60)
     pd.DataFrame(fit.cv_results_)
     plot_cvresult(fit.cv_results_, metric = "rmse",
-                  x_var = "n_estimators", color_var = "colsample_bytree", style_var = "colsample_bytree",
-                  column_var = "num_leaves", row_var = "learning_rate")
+                  x_var = "n_estimators", color_var = "colsample_bytree", style_var = "min_child_samples",
+                  column_var = "subsample", row_var = "learning_rate")
     plot_cvresult(fit.cv_results_, metric = "wrmsse",
-                  x_var = "n_estimators", color_var = "colsample_bytree", style_var = "colsample_bytree",
-                  column_var = "num_leaves", row_var = "learning_rate")
+                  x_var = "n_estimators", color_var = "colsample_bytree", style_var = "min_child_samples",
+                  column_var = "subsample", row_var = "learning_rate")
 
 
 # --- Fit and Score ----------------------------------------------------------------------------------------------------
@@ -281,26 +279,38 @@ df_train = (df_train
             .assign(weight_sales = lambda x: x["weight_sales"].pow(0.5))
             .sample(frac = 1, replace = True, weights = "weight_sales", random_state = 2)
             .reset_index(drop = True))
+#df_train_reg = df_train.query("anydemand == 1").reset_index(drop = True)  # TODO
+
 
 # Fit
-lgb_param = dict(n_estimators = 8000, learning_rate = 0.01,  # TODO
-                 num_leaves = 127, min_child_samples = 10,
+lgb_param = dict(n_estimators = 8000, learning_rate = 0.02,  # TODO
+                 num_leaves = 63, min_child_samples = 10,
                  colsample_bytree = 0.6, subsample = 1,
-                 objective = "rmse",
+                 #objective = "rmse",
                  n_jobs = n_jobs)
 fit = (lgbm.LGBMRegressor(**lgb_param)
        .fit(X = df_train[all_features],
-            y = df_train["demand_normed"],  #TODO
+            y = df_train["demand"],
             #sample_weight = df_train["weight_rmse"].values,#/min(df_train["weight_rmse"]),
             categorical_feature = cate.tolist()))
 
+# fit_reg = (lgbm.LGBMRegressor(**lgb_param) # TODO
+#        .fit(X = df_train_reg[all_features], # TODO
+#             y = df_train_reg["demand"],  # TODO
+#             #sample_weight = df_train["weight_rmse"].values,#/min(df_train["weight_rmse"]),
+#             categorical_feature = cate.tolist()))
+# fit_class = (lgbm.LGBMClassifier(**lgb_param) # TODO
+#        .fit(X = df_train[all_features], # TODO
+#             y = df_train["anydemand"],  # TODO
+#             categorical_feature = cate.tolist()))
+
 # Score
-#yhat = fit.predict(df_test[all_features])
-#df_test["yhat"] = np.where((df_test["sell_price_isna"] == 1) | (yhat < 0), 0.0000001,yhat)
+
 df_test["yhat"] = fit.predict(df_test[all_features])
-df_test["yhat"] = (df_test["yhat"] * np.where(df_test["demand_iqr"] == 0, 1, df_test["demand_iqr"])
-                   + df_test["demand_median"])  #TODO
-df_test["yhat"] = np.where((df_test["sell_price_isna"] == 1) | (df_test["yhat"] < 0), 0.0001, df_test["yhat"] ) #TODO
+#df_test["yhat"] = fit_class.predict_proba(df_test[all_features])[:,1] * fit_reg.predict(df_test[all_features]) # TODO
+#df_test["yhat"] = (df_test["yhat"] * np.where(df_test["demand_iqr"] == 0, 1, df_test["demand_iqr"])
+#                   + df_test["demand_median"])  #TODO
+df_test["yhat"] = np.where((df_test["sell_price_isna"] == 1) | (df_test["yhat"] < 0), 0.0001, df_test["yhat"] )
 
 '''
 # Rmse
@@ -320,7 +330,6 @@ df_tmp["wrmsse"].sum()
 '''
 
 '''
-
 df_check = (df_test.groupby("id")["yhat", "demand"].mean()
             .join(df_train.groupby("id")[["demand"]].mean().rename(columns = {"demand": "demand_train"}))
             .eval("yhat_minus_demand = yhat-demand")

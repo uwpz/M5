@@ -13,9 +13,8 @@ from datetime import datetime
 import gc
 
 # Specific parameters
-n_sample = None
+n_sample = 5000
 n_jobs = 16
-ids = ["id"]
 plt.ioff(); matplotlib.use('Agg')
 # plt.ion(); matplotlib.use('TkAgg')
 
@@ -279,12 +278,12 @@ def run_in_parallel(df):
     df = df.set_index(["date"])
 
     # Lag values (might depend on horizon)
-    def demand_lag_calc(shift, ids = ["id"], columns = ["demand", "snap"]):
-        return (df[ids + columns]
+    def demand_lag_calc(shift, columns = ["demand", "snap"]):
+        return (df[["id"] + columns]
                 .shift(shift, "D")
                 .rename(columns = {x: x + "_lag" + str(shift) for x in columns})
-                .set_index(ids, append = True))
-    demand_lag = (df[ids].set_index(ids, append = True)
+                .set_index(["id"], append = True))
+    demand_lag = (df[["id"]].set_index(["id"], append = True)
                   .join(demand_lag_calc(shift = 0), how = "left")
                   .join(demand_lag_calc(shift = 1), how = "left")
                   .join(demand_lag_calc(shift = 2), how = "left")
@@ -293,78 +292,90 @@ def run_in_parallel(df):
                   .join(demand_lag_calc(shift = 5), how = "left")
                   .join(demand_lag_calc(shift = 6), how = "left")
                   )
-    #df_tmp = demand_lag.reset_index().sort_values(by = ids + ["date"])  # Check
+    #df_tmp = demand_lag.reset_index().sort_values(by = ["id"] + ["date"])  # Check
 
     # Lag same weekday
-    # demand_lag_sameweekday = (df[ids + ["demand","snap"]]
+    # demand_lag_sameweekday = (df[["id"] + ["demand","snap"]]
     #                           .shift(((horizon - 1) // 7 + 1) * 7, "D")
     #                           .rename(columns = {"demand": "demand_lag_sameweekday", "snap": "snap_lag_sameweekday"})
-    #                           .set_index(ids, append = True))
+    #                           .set_index(["id"], append = True))
 
     # Rolling average
-    def demand_avg_calc(weekrange, ids = ["id"], columns = ["demand", "snap"]):
-        return (df[ids + columns]
-                .set_index(ids, append = True).unstack(ids)
-                .rolling(str(weekrange * 7) + "D", closed = "right").mean().stack(ids)
-                .rename(columns = {x: x + "_avg" + str(weekrange) + "week" for x in columns}))
-    demand_avg = (df[ids].set_index(ids, append = True)
-                  .join(demand_avg_calc(weekrange = 1), how = "left")
-                  .join(demand_avg_calc(weekrange = 2), how = "left")
-                  .join(demand_avg_calc(weekrange = 4, columns = ["demand"]), how = "left")
-                  .join(demand_avg_calc(weekrange = 12, columns = ["demand"]), how = "left")
-                  .join(demand_avg_calc(weekrange = 48, columns = ["demand"]), how = "left")
-                  )
+    def demand_calc(weekrange, columns = ["demand", "snap"]):
+        df_tmp = (df[["id"] + columns]
+                  .set_index(["id"], append = True).unstack(["id"])
+                  .rolling(str(weekrange * 7) + "D", closed = "right")
+                  .agg(["mean", "max", "min"])
+                  .stack(1))
+        df_tmp.columns = [str(x[0] + "_" + str(x[1]) + str(weekrange) + "week")
+                          for x in df_tmp.columns.to_flat_index().values]
+        df_tmp.index.set_names("id", 1, inplace = True)
+        return df_tmp
+    # return (df[["id"] + columns]
+    #         .set_index(["id"], append = True).unstack(["id"])
+    #         .rolling(str(weekrange * 7) + "D", closed = "right").mean().stack(["id"])
+    #         .rename(columns = {x: x + "_mean" + str(weekrange) + "week" for x in columns}))
+    demand = (df[["id"]].set_index(["id"], append = True)
+              .join(demand_calc(weekrange = 1), how = "left")
+              .join(demand_calc(weekrange = 2), how = "left")
+              .join(demand_calc(weekrange = 4, columns = ["demand"]), how = "left")
+              .join(demand_calc(weekrange = 12, columns = ["demand"]), how = "left")
+              .join(demand_calc(weekrange = 48, columns = ["demand"]), how = "left")
+              )
+    demand = demand.drop(columns = ["snap_max1week", "snap_max2week", "snap_min1week", "snap_min2week"])
 
     # Rolling average with same weekday
-    def demand_avg_sameweekday_calc(weekrange, ids = ["id"], columns = ["demand"]):
-        return (df[ids + ["dayofweek"] + columns]
+    def demand_sameweekday_calc(weekrange, columns = ["demand"]):
+        df_tmp = (df[["id"] + ["dayofweek"] + columns]
                 .groupby(["dayofweek"])
-                .apply(lambda x: (x[ids + columns].set_index(ids, append = True).unstack(ids)
-                                  .rolling(str(weekrange * 7) + "D", closed = "right").mean()
-                                  #.rolling(weekrange, min_periods = 1).mean()
-                                  .rename(columns = {x: x + "_avg" + str(weekrange) + "week_sameweekday"
-                                                     for x in columns})
-                                  .stack(ids)))
+                .apply(lambda x: (x[["id"] + columns].set_index(["id"], append = True).unstack(["id"])
+                                  .rolling(str(weekrange * 7) + "D", closed = "right")
+                                  .agg(["mean", "max", "min"])
+                                  .stack(1)))
                 .reset_index(["dayofweek"], drop = True))
-    demand_avg_sameweekday = (df[ids].set_index(ids, append = True)
-                              .join(demand_avg_sameweekday_calc(weekrange = 2), how = "left")
-                              .join(demand_avg_sameweekday_calc(weekrange = 4), how = "left")
-                              .join(demand_avg_sameweekday_calc(weekrange = 12), how = "left")
-                              .join(demand_avg_sameweekday_calc(weekrange = 48), how = "left")
+        df_tmp.columns = [str(x[0] + "_" + str(x[1]) + str(weekrange) + "week_sameweekday")
+                          for x in df_tmp.columns.to_flat_index().values]
+        df_tmp.index.set_names("id", 1, inplace = True)
+        return df_tmp
+    demand_sameweekday = (df[["id"]].set_index(["id"], append = True)
+                              .join(demand_sameweekday_calc(weekrange = 2), how = "left")
+                              .join(demand_sameweekday_calc(weekrange = 4), how = "left")
+                              .join(demand_sameweekday_calc(weekrange = 12), how = "left")
+                              .join(demand_sameweekday_calc(weekrange = 48), how = "left")
                               )
 
     # Rolling average with same weekday by snap
-    def demand_avg_sameweekday_snap_calc(weekrange, ids = ["id"], columns = ["demand"]):
-        df_tmp = (df[ids + ["dayofweek", "snap"] + columns]
-                .groupby(["dayofweek", "snap"])
-                .apply(lambda x: (x[ids + columns].set_index(ids, append = True).unstack(ids)
-                                  .rolling(weekrange, min_periods = 1).mean()
-                                  .rename(columns = {x: x + "_avg" + str(weekrange) + "week_sameweekday_samesnap"
-                                                     for x in columns})
-                                  .stack(ids)))
-                .reset_index(["dayofweek"], drop = True)
-                .unstack(["snap"]))
+    def demand_mean_sameweekday_samesnap_calc(weekrange, columns = ["demand"]):
+        df_tmp = (df[["id"] + ["dayofweek", "snap"] + columns]
+                  .groupby(["dayofweek", "snap"])
+                  .apply(lambda x: (x[["id"] + columns].set_index(["id"], append = True).unstack(["id"])
+                                    .rolling(weekrange, min_periods = 1).mean()
+                                    .rename(columns = {x: x + "_mean" + str(weekrange) + "week_sameweekday_samesnap"
+                                                       for x in columns})
+                                    .stack(["id"])))
+                  .reset_index(["dayofweek"], drop = True)
+                  .unstack(["snap"]))
         df_tmp.columns = [str(x[0] + str(x[1])) for x in df_tmp.columns.to_flat_index().values]
         return df_tmp
-    demand_avg_sameweekday_snap = (df[ids].set_index(ids, append = True)
-                                       .join(demand_avg_sameweekday_snap_calc(weekrange = 2), how = "left")
-                                       .join(demand_avg_sameweekday_snap_calc(weekrange = 4), how = "left")
-                                       .join(demand_avg_sameweekday_snap_calc(weekrange = 12), how = "left")
-                                       .join(demand_avg_sameweekday_snap_calc(weekrange = 48), how = "left")
+    demand_mean_sameweekday_samesnap = (df[["id"]].set_index(["id"], append = True)
+                                       .join(demand_mean_sameweekday_samesnap_calc(weekrange = 2), how = "left")
+                                       .join(demand_mean_sameweekday_samesnap_calc(weekrange = 4), how = "left")
+                                       .join(demand_mean_sameweekday_samesnap_calc(weekrange = 12), how = "left")
+                                       .join(demand_mean_sameweekday_samesnap_calc(weekrange = 48), how = "left")
                                        )
 
     # Join ts features together, check and drop original demand
-    df_tsfe = (df[ids + ["demand"]].set_index(ids, append = True)
+    df_tsfe = (df[["id"] + ["demand"]].set_index(["id"], append = True)
                .join(demand_lag, how = "left")
-               .join(demand_avg, how = "left")
+               .join(demand, how = "left")
                .reset_index())
-    df_tsfe_sameweekday = (df[ids + ["demand"]].set_index(ids, append = True)
-                           .join(demand_avg_sameweekday, how = "left")
-                           .join(demand_avg_sameweekday_snap, how = "left")
+    df_tsfe_sameweekday = (df[["id"] + ["demand"]].set_index(["id"], append = True)
+                           .join(demand_sameweekday, how = "left")
+                           .join(demand_mean_sameweekday_samesnap, how = "left")
                            .reset_index())
-    #df_tmp = df_tsfe.reset_index().sort_values(by = ids + ["date"])  # Check
-    #df_tmp_sameweekday = df_tsfe_sameweekday.reset_index().sort_values(by = ids + ["date"])  # Check
-    del df, demand_lag, demand_avg, demand_avg_sameweekday, demand_avg_sameweekday_snap
+    #df_tmp = df_tsfe.reset_index().sort_values(by = ["id"] + ["date"])  # Check
+    #df_tmp_sameweekday = df_tsfe_sameweekday.reset_index().sort_values(by = ["id"] + ["date"])  # Check
+    del df, demand_lag, demand, demand_sameweekday, demand_mean_sameweekday_samesnap
     gc.collect()
     df_tsfe = df_tsfe.drop(columns = ["demand"])
     df_tsfe_sameweekday = df_tsfe_sameweekday.drop(columns = ["demand"])
