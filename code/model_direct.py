@@ -175,7 +175,8 @@ df_test["yhat"] = np.where((df_test["sell_price_isna"] == 1) | (df_test["yhat"] 
 df_tmp = df_test[["id", "d", "yhat"]].set_index(["id", "d"]).unstack("d").reset_index()
 df_submit = pd.concat([pd.DataFrame(df_tmp.iloc[:, 1:29].values.round(5)).assign(id = df_tmp["id"]),
                        (pd.DataFrame(df_tmp.iloc[:, 1:29].values.round(5))
-                        .assign(id = df_tmp["id"].str.replace("validation", "evaluation")))])
+                        #.assign(id = df_tmp["id"].str.replace("validation", "evaluation")))])
+                        .assign(id = df_tmp["id"].str.replace("evaluation", "validation")))])
 df_submit.columns = ["F" + str(i) for i in range(1, 29)] + ["id"]
 (pd.read_csv(dataloc + "sample_submission.csv")[["id"]]
  .merge(df_submit, on = "id", how = "left")

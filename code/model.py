@@ -14,7 +14,7 @@ plt.ion(); matplotlib.use('TkAgg')
 begin = datetime.now()
 
 # Specific parameter
-n_sample = None
+n_sample = 1000
 n_jobs = 16
 horizon = 14
 d_comb = {1: ["dummy"],
@@ -218,7 +218,7 @@ if tune:
     # Check: >= 2014, remove year
 
     # Sample
-    n = 30e6
+    n = 5e6
     df_tune = pd.concat([(df_train.query("myfold == 'train'")
                           .assign(weight_sales = lambda x: x["weight_sales"].pow(0.5))
                           #.query("year >= 2014")
@@ -342,7 +342,8 @@ df_check = (df_test.groupby("id")["yhat", "demand"].mean()
 df_tmp = df_test[["id", "d", "yhat"]].set_index(["id", "d"]).unstack("d").reset_index()
 df_submit = pd.concat([pd.DataFrame(df_tmp.iloc[:, 1:29].values.round(5)).assign(id = df_tmp["id"]),
                        (pd.DataFrame(df_tmp.iloc[:, 1:29].values.round(5))
-                        .assign(id = df_tmp["id"].str.replace("validation", "evaluation")))])
+                        #.assign(id = df_tmp["id"].str.replace("validation", "evaluation")))])
+                        .assign(id = df_tmp["id"].str.replace("evaluation", "validation")))])
 df_submit.columns = ["F" + str(i) for i in range(1, 29)] + ["id"]
 (pd.read_csv(dataloc + "sample_submission.csv")[["id"]]
  .merge(df_submit, on = "id", how = "left")

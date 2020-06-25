@@ -13,7 +13,7 @@ from datetime import datetime
 import gc
 
 # Specific parameters
-n_sample = None
+n_sample = 1000
 n_jobs = 16
 plt.ioff(); matplotlib.use('Agg')
 # plt.ion(); matplotlib.use('TkAgg')
@@ -29,10 +29,13 @@ begin = datetime.now()
 
 # Sales, calendar, prices
 if n_sample is None:
-    df_sales_orig = pd.read_csv(dataloc + "sales_train_validation.csv")
+    #df_sales_orig = pd.read_csv(dataloc + "sales_train_validation.csv")
+    df_sales_orig = pd.read_csv(dataloc + "sales_train_evaluation.csv") # TODO
 else:
-    df_sales_orig = pd.read_csv(dataloc + "sales_train_validation.csv").sample(n = int(n_sample), random_state = 1)
-df_sales_orig[["d_" + str(x) for x in range(1914, 1942)]] = pd.DataFrame([[np.nan for x in range(1914, 1942)]])
+    #df_sales_orig = pd.read_csv(dataloc + "sales_train_validation.csv").sample(n = int(n_sample), random_state = 1)
+    df_sales_orig = pd.read_csv(dataloc + "sales_train_evaluation.csv").sample(n = int(n_sample), random_state = 1) # TODO
+#df_sales_orig[["d_" + str(x) for x in range(1914, 1942)]] = pd.DataFrame([[np.nan for x in range(1914, 1942)]]) # TODO
+df_sales_orig[["d_" + str(x) for x in range(1942, 1970)]] = pd.DataFrame([[np.nan for x in range(1942, 1970)]]) # TODO
 df_sales = pd.melt(df_sales_orig, id_vars = df_sales_orig.columns.values[:6],
                    var_name = "d", value_name = "demand")
 holidays = ["ValentinesDay","StPatricksDay","Easter","Mother's day","Father's day","IndependenceDay",
@@ -174,9 +177,11 @@ gc.collect()
 df = reduce_mem_usage(df)
 
 # Set fold
-df["fold"] = np.where(df["date"] >= "2016-04-25", "test", "train")
+#df["fold"] = np.where(df["date"] >= "2016-04-25", "test", "train")
+df["fold"] = np.where(df["date"] >= "2016-05-23", "test", "train")  # TODO
 #df.groupby("fold")["date"].nunique()
-df["myfold"] = np.where(df["date"] >= "2016-04-25", None, np.where(df["date"] >= "2016-03-28", "test", "train"))
+#df["myfold"] = np.where(df["date"] >= "2016-04-25", None, np.where(df["date"] >= "2016-03-28", "test", "train"))
+df["myfold"] = np.where(df["date"] >= "2016-05-23", None, np.where(df["date"] >= "2016-04-25", "test", "train"))  # TODO
 #df.groupby("myfold")["date"].nunique()
 df.myfold.describe()
 
