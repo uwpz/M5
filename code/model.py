@@ -14,9 +14,9 @@ plt.ion(); matplotlib.use('TkAgg')
 begin = datetime.now()
 
 # Specific parameter
-n_sample = 5000
+n_sample = None
 n_jobs = 16
-horizon = 28
+horizon = 14
 d_comb = {1: ["dummy"],
           2: ["state_id"], 3: ["store_id"], 4: ["cat_id"], 5: ["dept_id"],
           6: ["state_id", "cat_id"], 7: ["state_id", "dept_id"], 8: ["store_id", "cat_id"], 9: ["store_id", "dept_id"],
@@ -218,7 +218,7 @@ if tune:
     # Check: >= 2014, remove year
 
     # Sample
-    n = 5e6
+    n = 30e6
     df_tune = pd.concat([(df_train.query("myfold == 'train'")
                           .assign(weight_sales = lambda x: x["weight_sales"].pow(0.5))
                           #.query("year >= 2014")
@@ -250,7 +250,7 @@ if tune:
     # LightGBM
     start = time.time()
     fit = (GridSearchCV_xlgb(lgbm.LGBMRegressor(n_jobs = n_jobs),
-                             {"n_estimators": [x for x in range(500, 10500, 1000)], "learning_rate": [0.02],
+                             {"n_estimators": [x for x in range(500, 3500, 500)], "learning_rate": [0.04],
                               "num_leaves": [63], "min_child_samples": [10],
                               "colsample_bytree": [0.6], "subsample": [1], "subsample_freq": [1],
                               "objective": ["rmse"]},
@@ -265,11 +265,11 @@ if tune:
     print((time.time()-start)/60)
     pd.DataFrame(fit.cv_results_)
     plot_cvresult(fit.cv_results_, metric = "rmse",
-                  x_var = "n_estimators", color_var = "colsample_bytree", style_var = "min_child_samples",
-                  column_var = "subsample", row_var = "learning_rate")
+                  x_var = "n_estimators", color_var = "learning_rate", style_var = "min_child_samples",
+                  column_var = "subsample", row_var = "colsample_bytree")
     plot_cvresult(fit.cv_results_, metric = "wrmsse",
-                  x_var = "n_estimators", color_var = "colsample_bytree", style_var = "min_child_samples",
-                  column_var = "subsample", row_var = "learning_rate")
+                  x_var = "n_estimators", color_var = "learning_rate", style_var = "min_child_samples",
+                  column_var = "subsample", row_var = "colsample_bytree")
 
 
 # --- Fit and Score ----------------------------------------------------------------------------------------------------
@@ -283,7 +283,7 @@ df_train = (df_train
 
 
 # Fit
-lgb_param = dict(n_estimators = 8000, learning_rate = 0.02,  # TODO
+lgb_param = dict(n_estimators = 3000, learning_rate = 0.04,  # TODO
                  num_leaves = 63, min_child_samples = 10,
                  colsample_bytree = 0.6, subsample = 1,
                  #objective = "rmse",
@@ -291,7 +291,7 @@ lgb_param = dict(n_estimators = 8000, learning_rate = 0.02,  # TODO
 fit = (lgbm.LGBMRegressor(**lgb_param)
        .fit(X = df_train[all_features],
             y = df_train["demand"],
-            #sample_weight = df_train["weight_rmse"].values,#/min(df_train["weight_rmse"]),
+            sample_weight = df_train["weight_rmse"].values / min(df_train["weight_rmse"]),
             categorical_feature = cate.tolist()))
 
 # fit_reg = (lgbm.LGBMRegressor(**lgb_param) # TODO

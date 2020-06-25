@@ -13,7 +13,7 @@ from datetime import datetime
 import gc
 
 # Specific parameters
-n_sample = 5000
+n_sample = None
 n_jobs = 16
 plt.ioff(); matplotlib.use('Agg')
 # plt.ion(); matplotlib.use('TkAgg')

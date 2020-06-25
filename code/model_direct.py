@@ -15,7 +15,7 @@ plt.ion(); matplotlib.use('TkAgg')
 begin = datetime.now()
 
 # Specific parameter
-n_sample = 5000
+n_sample = None
 n_jobs = 16
 #horizon = 28
 d_comb = {1: ["dummy"],
@@ -151,7 +151,7 @@ for horizon in range(1,29):
                 .sample(frac = 1, replace = True, weights = "weight_sales", random_state = 2)
             .reset_index(drop = True))
     # Fit
-    lgb_param = dict(n_estimators = 5000, learning_rate = 0.03,  # TODO
+    lgb_param = dict(n_estimators = 3000, learning_rate = 0.04,  # TODO
                      num_leaves = 63, min_child_samples = 10,
                      colsample_bytree = 0.6, subsample = 1,
                      objective = "rmse",
