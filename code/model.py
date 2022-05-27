@@ -14,7 +14,7 @@ plt.ion(); matplotlib.use('TkAgg')
 begin = datetime.now()
 
 # Specific parameter
-n_sample = 1000
+n_sample = 5000
 n_jobs = 16
 horizon = 14
 d_comb = {1: ["dummy"],
@@ -352,6 +352,13 @@ df_submit.columns = ["F" + str(i) for i in range(1, 29)] + ["id"]
 
 
 '''
+df_tmp = pd.read_csv("data/submit_secondtry.csv")
+df_tmp.iloc[:, 1:] = np.round(df_tmp.iloc[:, 1:]*1, 5)
+df_tmp .to_csv("data/submit.csv", index = False)
+'''
+
+
+'''
 df_my = pd.read_csv("data/submit_firsttry.csv").iloc[:30490, :]
 df_kernel = df_my[["id"]].merge(pd.read_csv("data/submission_kernel.csv").iloc[:30490, :], how="left")
 df_t = df_my[["id"]].merge(pd.read_csv("data/sales_train_validation.csv").iloc[:30490, :], how="left")
@@ -371,7 +378,6 @@ plt.scatter(df_blub.train, df_blub.test, s=0.1)
 
 
 '''
-
 
 
 

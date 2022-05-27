@@ -8,7 +8,7 @@ from datetime import datetime
 import gc
 
 # Specific parameters
-n_sample = 5000
+n_sample = None
 n_jobs = 4
 ids = ["id"]
 plt.ioff(); matplotlib.use('Agg')
@@ -42,6 +42,8 @@ df_holdout = df_submit.merge(df_truth, how = "left").merge(df_ids, how = "left",
 
 # Rmse
 print(rmse(df_holdout["yhat"], df_holdout["demand"]))
+print(df_holdout["yhat"].mean(), df_holdout["demand"].mean())
+print(df_holdout["demand"].mean()/df_holdout["yhat"].mean())
 
 df_rmse = pd.DataFrame()
 for key in d_comb:

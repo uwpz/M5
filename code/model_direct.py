@@ -183,7 +183,11 @@ df_submit.columns = ["F" + str(i) for i in range(1, 29)] + ["id"]
  .fillna(0)
  .to_csv("data/submit.csv", index = False))
 
-
+'''
+df_tmp = pd.read_csv("data/submit_ahead_noweight.csv")
+df_tmp.iloc[:, 1:] = np.round(df_tmp.iloc[:, 1:]*0.952, 5)
+df_tmp .to_csv("data/submit.csv", index = False)
+'''
 
 
 
